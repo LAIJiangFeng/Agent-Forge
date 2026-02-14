@@ -1,0 +1,7 @@
+{
+  "scanPaths": {
+    "skills": ["~/.claude/skills", "~/.claude/plugins/marketplaces"],
+    "mcpConfigs": ["~/.claude.json"]
+  },
+  "projectRoots": ["D:/project"]
+}

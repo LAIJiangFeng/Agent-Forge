@@ -1,0 +1,11 @@
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+eslint-output.txt
+eslint-report.txt
+eslint-json.txt
+lint-results.txt
+lint2.txt

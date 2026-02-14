@@ -1,0 +1,8 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: Soft rounded square, Dark Blue -->
+  <rect width="128" height="128" rx="28" fill="#1a1a2e"/>
+  
+  <!-- Icon: Stylized Spark/Bolt, Orange -->
+  <!-- Centered and balanced -->
+  <path d="M68 24 L86 54 H72 L78 88 L46 50 H60 L68 24 Z" fill="#f97316"/>
+</svg>
