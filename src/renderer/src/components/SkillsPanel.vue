@@ -116,11 +116,12 @@ const doTranslate = async () => {
   translating.value = true
   try {
     const skill = selectedSkill.value
+    const skillId = skill.id
     const desc = String(skill.description || '')
     const inst = String(skill.instructions || '')
     const feats = [...skill.features].map(String)
     const result = await window.api.translateSkillContent(desc, inst, feats)
-    translatedCache.value[selectedSkill.value.id] = result
+    translatedCache.value[skillId] = result
     showOriginal.value = false
   } catch (err) {
     console.error('Translation failed:', err)

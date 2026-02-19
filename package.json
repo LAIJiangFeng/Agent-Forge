@@ -24,15 +24,16 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@guolao/vue-monaco-editor": "^1.6.0",
+    "adm-zip": "^0.5.16",
     "dompurify": "^3.3.1",
     "electron-updater": "^6.3.9",
-    "google-translate-api-x": "^10.7.2",
     "marked": "^17.0.2"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@types/adm-zip": "^0.5.7",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^22.19.1",
     "@vitejs/plugin-vue": "^6.0.2",

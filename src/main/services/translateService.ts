@@ -20,7 +20,7 @@ function isEnglish(text: string): boolean {
     .replace(/```[\s\S]*?```/g, '')
     .replace(/`[^`]+`/g, '')
     .replace(/https?:\/\/\S+/g, '')
-    .replace(/[#*_\-\[\]()>|]/g, '')
+    .replace(/[#*_[\]()>|-]/g, '')
     .replace(/\d+/g, '')
     .trim()
 

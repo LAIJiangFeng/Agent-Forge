@@ -1,11 +1,35 @@
+# Dependencies
 node_modules
+
+# Build output
 dist
 out
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode
+.idea
+
+# Claude Code
+.claude
+
+# ESLint cache & reports
 .eslintcache
-*.log*
 eslint-output.txt
 eslint-report.txt
 eslint-json.txt
 lint-results.txt
 lint2.txt
+
+# Logs
+*.log*
+
+# Temp files
+tmp_zip_test/
+tmp_zip_test2/
+
+# PowerShell scripts (dev utilities)
+generate_icon.ps1
