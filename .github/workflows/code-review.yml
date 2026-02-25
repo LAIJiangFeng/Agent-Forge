@@ -1,0 +1,103 @@
+name: Codex Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }} --depth=50
+          DIFF=$(git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- '*.ts' '*.vue' '*.js' '*.css' '*.json' | head -c 80000)
+          # Save diff to file to avoid shell escaping issues
+          echo "$DIFF" > /tmp/pr_diff.txt
+
+      - name: Read review standards
+        id: standards
+        run: |
+          STANDARD=$(cat .github/review-standards/review-standard-v2.md)
+          FOCUS=$(cat .github/review-standards/project-review-focus.md)
+          echo "$STANDARD" > /tmp/review_standard.txt
+          echo "$FOCUS" > /tmp/project_focus.txt
+
+      - name: Codex Code Review
+        id: review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+        run: |
+          # Build the prompt
+          DIFF=$(cat /tmp/pr_diff.txt)
+          STANDARD=$(cat /tmp/review_standard.txt)
+          FOCUS=$(cat /tmp/project_focus.txt)
+
+          PROMPT="你是一位资深代码审查助手。请按照以下规范严格审查本次 PR 的代码差异。
+
+          ## 审查标准
+          ${STANDARD}
+
+          ## 项目审查重点
+          ${FOCUS}
+
+          ## 本次 PR 代码差异
+          \`\`\`diff
+          ${DIFF}
+          \`\`\`
+
+          请严格按规范输出审查结果，包含：
+          1. 问题分级列表（🔴严重 / 🟡中等 / 🟢轻微），每个问题需说明原因、位置、建议修改方案
+          2. 📊 质量评分（满分100）和星级评定
+          3. 🐛 问题统计
+          4. 📝 综合评语
+          5. ✅ 审查结论（Approve / Request Changes / Comment Only）"
+
+          # Call OpenAI-compatible API
+          RESPONSE=$(curl -s -X POST "${OPENAI_BASE_URL}/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            -d "$(jq -n \
+              --arg prompt "$PROMPT" \
+              '{
+                model: "gpt-5.3-codex",
+                messages: [{role: "user", content: $prompt}],
+                max_tokens: 4096,
+                temperature: 0.3
+              }')")
+
+          # Extract review content
+          REVIEW_BODY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+
+          if [ -z "$REVIEW_BODY" ]; then
+            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
+            REVIEW_BODY="⚠️ 代码审查 API 调用失败: ${ERROR}"
+          fi
+
+          # Save to file (avoid delimiter issues)
+          echo "$REVIEW_BODY" > /tmp/review_result.txt
+
+      - name: Post Review Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reviewBody = fs.readFileSync('/tmp/review_result.txt', 'utf8');
+            const body = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
