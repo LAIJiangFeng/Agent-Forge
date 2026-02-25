@@ -19,6 +19,11 @@ import { addMcpLog, clearMcpLogs, getMcpLogs } from './services/mcpLogService'
 import { installDxt, parseDxtFile } from './services/dxtService'
 import { getSkillContent, saveSkillContent, scanSkills } from './services/skillsService'
 import { translateSkillContent } from './services/translateService'
+import {
+  aiSearchMarketplaceSkills,
+  installMarketplaceSkill,
+  searchMarketplaceSkills
+} from './services/skillsMarketplaceService'
 
 interface AppConfig {
   scanPaths: {
@@ -26,6 +31,7 @@ interface AppConfig {
     mcpConfigs: string[]
   }
   projectRoots: string[]
+  skillsmpApiKey?: string
 }
 
 const CONFIG_PATH = join(app.getPath('userData'), 'config.json')
@@ -39,7 +45,8 @@ const DEFAULT_CONFIG: AppConfig = {
     skills: ['~/.claude/skills', '~/.claude/plugins/marketplaces'],
     mcpConfigs: ['~/.claude.json']
   },
-  projectRoots: [DEFAULT_PROJECT_ROOT]
+  projectRoots: [DEFAULT_PROJECT_ROOT],
+  skillsmpApiKey: ''
 }
 
 function sanitizeStringList(value: unknown): string[] {
@@ -73,12 +80,16 @@ function sanitizeConfig(input: unknown): AppConfig {
   const mcpConfigs = sanitizeStringList(scanPaths.mcpConfigs)
   const projectRoots = sanitizeStringList(obj.projectRoots)
 
+  const rawApiKey = obj.skillsmpApiKey
+  const skillsmpApiKey = typeof rawApiKey === 'string' ? rawApiKey.trim().slice(0, 256) : ''
+
   return {
     scanPaths: {
       skills: skills.length > 0 ? skills : [...DEFAULT_CONFIG.scanPaths.skills],
       mcpConfigs: mcpConfigs.length > 0 ? mcpConfigs : [...DEFAULT_CONFIG.scanPaths.mcpConfigs]
     },
-    projectRoots: projectRoots.length > 0 ? projectRoots : [...DEFAULT_CONFIG.projectRoots]
+    projectRoots: projectRoots.length > 0 ? projectRoots : [...DEFAULT_CONFIG.projectRoots],
+    skillsmpApiKey
   }
 }
 
@@ -100,6 +111,37 @@ function loadConfig(): AppConfig {
   }
 
   return sanitizeConfig(DEFAULT_CONFIG)
+}
+
+function resolveSkillsmpApiKey(): string {
+  const fromConfig = loadConfig().skillsmpApiKey?.trim()
+  if (fromConfig) return fromConfig
+
+  const envApiKey = typeof process.env.SKILLSMP_API_KEY === 'string' ? process.env.SKILLSMP_API_KEY.trim().slice(0, 256) : ''
+  if (envApiKey) return envApiKey
+
+  const appDataDir = process.env.APPDATA
+  if (!appDataDir) return ''
+
+  const candidateConfigPaths = [
+    join(appDataDir, 'agent-forge', 'config.json'),
+    join(appDataDir, app.getName(), 'config.json'),
+    join(appDataDir, 'Agent Forge', 'config.json'),
+    join(appDataDir, 'Electron', 'config.json')
+  ]
+
+  for (const configPath of candidateConfigPaths) {
+    if (!existsSync(configPath)) continue
+    try {
+      const parsed = sanitizeConfig(JSON.parse(readFileSync(configPath, 'utf-8')))
+      const key = parsed.skillsmpApiKey?.trim()
+      if (key) return key
+    } catch {
+      // ignore invalid candidate config file
+    }
+  }
+
+  return ''
 }
 
 function saveConfig(config: AppConfig): void {
@@ -479,6 +521,39 @@ function registerIpcHandlers(): void {
   ipcMain.handle('utils:openExternal', async (_event, url: string) => {
     await safeOpenExternal(url)
   })
+
+  // Marketplace
+  ipcMain.handle(
+    'marketplace:search',
+    async (
+      _event,
+      query: string,
+      page?: number,
+      limit?: number,
+      sortBy?: 'stars' | 'recent'
+    ) => {
+      const apiKey = resolveSkillsmpApiKey()
+      if (!apiKey) {
+        throw new Error(`Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`)
+      }
+      return searchMarketplaceSkills(apiKey, query, page, limit, sortBy)
+    }
+  )
+
+  ipcMain.handle('marketplace:aiSearch', async (_event, query: string) => {
+    const apiKey = resolveSkillsmpApiKey()
+    if (!apiKey) {
+      throw new Error(`Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`)
+    }
+    return aiSearchMarketplaceSkills(apiKey, query)
+  })
+
+  ipcMain.handle(
+    'marketplace:install',
+    async (_event, skillName: string, githubUrl: string) => {
+      return installMarketplaceSkill(skillName, githubUrl)
+    }
+  )
 }
 
 app.whenReady().then(() => {

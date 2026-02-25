@@ -7,6 +7,7 @@ interface AppConfig {
     mcpConfigs: string[]
   }
   projectRoots: string[]
+  skillsmpApiKey: string
 }
 
 const config = ref<AppConfig>({
@@ -14,11 +15,13 @@ const config = ref<AppConfig>({
     skills: [],
     mcpConfigs: []
   },
-  projectRoots: []
+  projectRoots: [],
+  skillsmpApiKey: ''
 })
 
 const loading = ref(true)
 const saveStatus = ref<'idle' | 'saving' | 'success' | 'error'>('idle')
+const saveErrorMessage = ref('')
 
 // 新增输入
 const newSkillPath = ref('')
@@ -29,7 +32,11 @@ const newProjectRoot = ref('')
 const loadConfig = async () => {
   loading.value = true
   try {
-    config.value = await window.api.getConfig()
+    const loaded = await window.api.getConfig()
+    config.value = {
+      ...loaded,
+      skillsmpApiKey: loaded.skillsmpApiKey || ''
+    }
   } catch (err) {
     console.error('Failed to load config:', err)
   } finally {
@@ -40,14 +47,25 @@ const loadConfig = async () => {
 // 保存配置
 const saveConfig = async () => {
   saveStatus.value = 'saving'
+  saveErrorMessage.value = ''
   try {
-    await window.api.saveConfig(config.value)
+    const payload: AppConfig = {
+      scanPaths: {
+        skills: [...config.value.scanPaths.skills],
+        mcpConfigs: [...config.value.scanPaths.mcpConfigs]
+      },
+      projectRoots: [...config.value.projectRoots],
+      skillsmpApiKey: (config.value.skillsmpApiKey || '').trim()
+    }
+    config.value.skillsmpApiKey = payload.skillsmpApiKey
+    await window.api.saveConfig(payload)
     saveStatus.value = 'success'
     setTimeout(() => {
       saveStatus.value = 'idle'
     }, 2000)
   } catch (err) {
     saveStatus.value = 'error'
+    saveErrorMessage.value = err instanceof Error ? err.message : String(err)
     console.error('Failed to save config:', err)
     setTimeout(() => {
       saveStatus.value = 'idle'
@@ -284,7 +302,46 @@ onMounted(() => {
       </div>
 
       <!-- 保存按钮 -->
+      <div
+        class="bg-forge-panel border border-forge-border p-6 rounded-lg relative overflow-hidden"
+      >
+        <div class="absolute top-0 left-0 w-1 h-full bg-violet-600"></div>
+        <h3 class="text-sm font-bold text-white mb-1 flex items-center gap-1.5">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 2l4 4-8 8-4-4z" />
+            <path d="M7 13l4 4" />
+            <path d="M14 6l4 4" />
+          </svg>
+          SkillsMP API Key
+        </h3>
+        <p class="text-xs text-neutral-500 mb-4">
+          用于 SkillsMP 搜索与安装。可在 https://skillsmp.com 获取。
+        </p>
+        <input
+          v-model="config.skillsmpApiKey"
+          type="password"
+          autocomplete="off"
+          placeholder="sk_..."
+          class="w-full bg-forge-bg border border-forge-border rounded px-3 py-2 text-xs text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-violet-800 transition-colors font-mono"
+        />
+      </div>
+
       <div class="flex justify-end pt-4 border-t border-forge-border">
+        <p
+          v-if="saveStatus === 'error' && saveErrorMessage"
+          class="text-xs text-red-400 mr-auto self-center"
+        >
+          {{ saveErrorMessage }}
+        </p>
         <button
           class="px-6 py-2.5 text-sm font-bold rounded transition-all duration-300"
           :class="{

@@ -45,6 +45,27 @@ interface AppConfig {
     mcpConfigs: string[]
   }
   projectRoots: string[]
+  skillsmpApiKey?: string
+}
+
+interface MarketplaceSkill {
+  name: string
+  description: string
+  author: string
+  github_url: string
+  stars: number
+  tags: string[]
+  updated_at: string
+  raw_url?: string
+  content?: string
+}
+
+interface MarketplaceSearchResult {
+  success: boolean
+  skills: MarketplaceSkill[]
+  total: number
+  page: number
+  limit: number
 }
 
 interface McpLogEntry {
@@ -116,6 +137,17 @@ interface AgentForgeAPI {
   openDxtFile(): Promise<string | null>
   parseDxt(filePath: string): Promise<DxtParseResult>
   installDxt(filePath: string, configPath: string, userConfigValues?: Record<string, string>): Promise<{ serverName: string; installDir: string }>
+  searchMarketplace(
+    query: string,
+    page?: number,
+    limit?: number,
+    sortBy?: 'stars' | 'recent'
+  ): Promise<MarketplaceSearchResult>
+  aiSearchMarketplace(query: string): Promise<MarketplaceSearchResult>
+  installMarketplaceSkill(
+    name: string,
+    githubUrl: string
+  ): Promise<{ installDir: string; skillName: string }>
   getConfig(): Promise<AppConfig>
   saveConfig(config: AppConfig): Promise<{ success: boolean }>
   openInExplorer(path: string): Promise<void>

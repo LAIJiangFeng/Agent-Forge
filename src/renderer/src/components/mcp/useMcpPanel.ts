@@ -146,6 +146,63 @@ export const useMcpPanel = () => {
     saveStatus.value = 'idle'
   }
 
+  /**
+   * 在 parsed config 中找到包含指定 serverName 的 mcpServers 容器
+   * 支持:
+   *   - 顶层 { mcpServers: {...} }
+   *   - .claude.json 格式 { projects: { [path]: { mcpServers: {...} } } }
+   *   - _disabled_mcpServers
+   */
+  const findServerScope = (
+    fullConfig: Record<string, unknown>,
+    serverName: string,
+    projectPath?: string
+  ): { container: Record<string, unknown>; key: 'mcpServers' | '_disabled_mcpServers' } | null => {
+    // 如果有 projectPath，优先在 projects[projectPath] 中查找
+    if (projectPath) {
+      const projects = fullConfig.projects as Record<string, Record<string, unknown>> | undefined
+      if (projects && projects[projectPath]) {
+        const scope = projects[projectPath]
+        const mcpServers = scope.mcpServers as Record<string, unknown> | undefined
+        if (mcpServers && serverName in mcpServers) {
+          return { container: scope, key: 'mcpServers' }
+        }
+        const disabled = scope._disabled_mcpServers as Record<string, unknown> | undefined
+        if (disabled && serverName in disabled) {
+          return { container: scope, key: '_disabled_mcpServers' }
+        }
+      }
+    }
+
+    // 顶层 mcpServers
+    const topMcp = fullConfig.mcpServers as Record<string, unknown> | undefined
+    if (topMcp && serverName in topMcp) {
+      return { container: fullConfig, key: 'mcpServers' }
+    }
+    const topDisabled = fullConfig._disabled_mcpServers as Record<string, unknown> | undefined
+    if (topDisabled && serverName in topDisabled) {
+      return { container: fullConfig, key: '_disabled_mcpServers' }
+    }
+
+    // 遍历所有 projects
+    const projects = fullConfig.projects as Record<string, Record<string, unknown>> | undefined
+    if (projects) {
+      for (const pConfig of Object.values(projects)) {
+        if (!pConfig || typeof pConfig !== 'object') continue
+        const mcpSrv = pConfig.mcpServers as Record<string, unknown> | undefined
+        if (mcpSrv && serverName in mcpSrv) {
+          return { container: pConfig, key: 'mcpServers' }
+        }
+        const disSrv = pConfig._disabled_mcpServers as Record<string, unknown> | undefined
+        if (disSrv && serverName in disSrv) {
+          return { container: pConfig, key: '_disabled_mcpServers' }
+        }
+      }
+    }
+
+    return null
+  }
+
   const toggleEdit = async () => {
     if (isEditing.value) {
       isEditing.value = false
@@ -156,7 +213,20 @@ export const useMcpPanel = () => {
 
     try {
       const content = await window.api.getMcpConfig(selectedConfigPath.value)
-      editValue.value = content
+      const serverName = selectedServer.value?.name
+      if (!serverName) return
+
+      const fullConfig = JSON.parse(content)
+      const scope = findServerScope(fullConfig, serverName, selectedServer.value?.projectPath)
+
+      if (scope) {
+        const servers = scope.container[scope.key] as Record<string, unknown>
+        const serverConfig = servers[serverName]
+        editValue.value = JSON.stringify({ [serverName]: serverConfig }, null, 2)
+      } else {
+        // fallback：显示整个文件
+        editValue.value = content
+      }
       isEditing.value = true
     } catch (err) {
       console.error('Failed to load MCP config:', err)
@@ -169,7 +239,37 @@ export const useMcpPanel = () => {
 
     saveStatus.value = 'saving'
     try {
-      await window.api.saveMcpConfig(selectedConfigPath.value, editValue.value)
+      const editedObj = JSON.parse(editValue.value)
+      const editedKeys = Object.keys(editedObj)
+
+      const fullContent = await window.api.getMcpConfig(selectedConfigPath.value)
+      const fullConfig = JSON.parse(fullContent)
+
+      const oldName = selectedServer.value?.name
+      const scope = oldName
+        ? findServerScope(fullConfig, oldName, selectedServer.value?.projectPath)
+        : null
+
+      if (scope && editedKeys.length >= 1 && oldName) {
+        const servers = scope.container[scope.key] as Record<string, unknown>
+        const newName = editedKeys[0]
+
+        // 如果重命名了 server，删除旧的
+        if (newName !== oldName) {
+          delete servers[oldName]
+        }
+        // 写入新配置
+        for (const key of editedKeys) {
+          servers[key] = editedObj[key]
+        }
+      } else {
+        // fallback：确保顶层 mcpServers 存在并合并
+        if (!fullConfig.mcpServers) fullConfig.mcpServers = {}
+        Object.assign(fullConfig.mcpServers, editedObj)
+      }
+
+      const mergedContent = JSON.stringify(fullConfig, null, 2)
+      await window.api.saveMcpConfig(selectedConfigPath.value, mergedContent)
       saveStatus.value = 'success'
       isEditing.value = false
       await loadMcp()

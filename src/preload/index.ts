@@ -6,6 +6,7 @@ interface AppConfig {
     mcpConfigs: string[]
   }
   projectRoots: string[]
+  skillsmpApiKey?: string
 }
 
 // Custom APIs for renderer
@@ -52,6 +53,17 @@ const api = {
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
   saveConfig: (config: AppConfig) => ipcRenderer.invoke('config:save', config),
+
+  // Marketplace
+  searchMarketplace: (
+    query: string,
+    page?: number,
+    limit?: number,
+    sortBy?: 'stars' | 'recent'
+  ) => ipcRenderer.invoke('marketplace:search', query, page, limit, sortBy),
+  aiSearchMarketplace: (query: string) => ipcRenderer.invoke('marketplace:aiSearch', query),
+  installMarketplaceSkill: (name: string, githubUrl: string) =>
+    ipcRenderer.invoke('marketplace:install', name, githubUrl),
 
   // Utils
   openInExplorer: (path: string) => ipcRenderer.invoke('utils:openInExplorer', path),
