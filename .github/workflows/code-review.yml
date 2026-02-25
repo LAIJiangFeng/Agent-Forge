@@ -35,7 +35,16 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
         run: |
-          # Use Python to build JSON payload - avoids all shell escaping issues
+          set -euo pipefail
+
+          if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${OPENAI_BASE_URL:-}" ]; then
+            echo "⚠️ Missing OPENAI_API_KEY or OPENAI_BASE_URL repository secret." > /tmp/review_result.txt
+            exit 0
+          fi
+
+          API_BASE_URL="${OPENAI_BASE_URL%/}"
+
+          # Build request payload via Python to avoid shell escaping issues.
           python3 << 'PYTHON_EOF'
           import json
 
@@ -46,52 +55,66 @@ jobs:
           with open('/tmp/pr_diff.txt', 'r', encoding='utf-8') as f:
               diff = f.read()
 
-          prompt = f"""你是一位资深代码审查助手。请按照以下规范严格审查本次 PR 的代码差异。
+          prompt = f"""You are a senior code review assistant. Review this pull request diff strictly using the standards below.
 
-          ## 审查标准
+          ## Review Standard
           {standard}
 
-          ## 项目审查重点
+          ## Project Focus
           {focus}
 
-          ## 本次 PR 代码差异
+          ## Pull Request Diff
           ```diff
           {diff}
           ```
 
-          请严格按规范输出审查结果，包含：
-          1. 问题分级列表（🔴严重 / 🟡中等 / 🟢轻微），每个问题需说明原因、位置、建议修改方案
-          2. 📊 质量评分（满分100）和星级评定
-          3. 🐛 问题统计
-          4. 📝 综合评语
-          5. ✅ 审查结论（Approve / Request Changes / Comment Only）"""
+          Output format requirements:
+          1. Issues grouped by severity (Critical / Medium / Minor), each with reason, location, and fix suggestion
+          2. Quality score out of 100 and star rating
+          3. Issue statistics
+          4. Overall summary
+          5. Final conclusion (Approve / Request Changes / Comment Only)"""
 
-          payload = json.dumps({
+          payload = {
               "model": "gpt-5.3-codex",
               "messages": [{"role": "user", "content": prompt}],
               "max_tokens": 4096,
-              "temperature": 0.3
-          }, ensure_ascii=False)
+              "temperature": 0.3,
+          }
 
           with open('/tmp/api_payload.json', 'w', encoding='utf-8') as f:
-              f.write(payload)
+              f.write(json.dumps(payload, ensure_ascii=False))
           PYTHON_EOF
 
-          # Call OpenAI-compatible API using file input to avoid shell escaping
-          RESPONSE=$(curl -s -X POST "${OPENAI_BASE_URL}/chat/completions" \
+          HTTP_CODE=$(curl -sS -o /tmp/api_response.txt -w "%{http_code}" -X POST "${API_BASE_URL}/chat/completions" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${OPENAI_API_KEY}" \
             -d @/tmp/api_payload.json)
 
-          # Extract review content
-          REVIEW_BODY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          RESPONSE=$(cat /tmp/api_response.txt)
 
-          if [ -z "$REVIEW_BODY" ]; then
-            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
-            REVIEW_BODY="⚠️ 代码审查 API 调用失败: ${ERROR}"
+          if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+            SNIPPET=$(printf "%s" "$RESPONSE" | tr '\n' ' ' | head -c 500)
+            echo "⚠️ Code review API returned non-JSON response (HTTP ${HTTP_CODE}). Response snippet: ${SNIPPET}" > /tmp/review_result.txt
+            exit 0
           fi
 
-          # Save to file (avoid delimiter issues)
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .message // "Unknown error"')
+            echo "⚠️ Code review API request failed (HTTP ${HTTP_CODE}): ${ERROR}" > /tmp/review_result.txt
+            exit 0
+          fi
+
+          # Support both chat-completions and responses-like payload shapes.
+          REVIEW_BODY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // .output_text // empty')
+          if [ -z "$REVIEW_BODY" ] || [ "$REVIEW_BODY" = "null" ]; then
+            REVIEW_BODY=$(echo "$RESPONSE" | jq -r '[.output[]?.content[]?.text // empty] | join("\n")')
+          fi
+
+          if [ -z "$REVIEW_BODY" ] || [ "$REVIEW_BODY" = "null" ]; then
+            REVIEW_BODY="⚠️ Code review API returned JSON but no review content."
+          fi
+
           echo "$REVIEW_BODY" > /tmp/review_result.txt
 
       - name: Post Review Comment
@@ -100,10 +123,10 @@ jobs:
           script: |
             const fs = require('fs');
             const reviewBody = fs.readFileSync('/tmp/review_result.txt', 'utf8');
-            const body = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
+            const body = `## 🤖 Codex Automated Code Review\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              body
             });
