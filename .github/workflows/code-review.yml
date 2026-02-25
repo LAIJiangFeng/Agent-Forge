@@ -97,22 +97,43 @@ jobs:
               f.write(json.dumps(payload, ensure_ascii=False))
           PYTHON_EOF
 
-          HTTP_CODE=$(curl -sS -o /tmp/api_response.txt -w "%{http_code}" -X POST "${API_BASE_URL}/chat/completions" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-            -d @/tmp/api_payload.json)
+          MAX_ATTEMPTS=3
+          ATTEMPT=1
+          HTTP_CODE="000"
+          RESPONSE=""
 
-          RESPONSE=$(cat /tmp/api_response.txt)
+          while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+            HTTP_CODE=$(curl -sS -o /tmp/api_response.txt -w "%{http_code}" \
+              --connect-timeout 15 --max-time 180 \
+              -X POST "${API_BASE_URL}/chat/completions" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+              -d @/tmp/api_payload.json || echo "000")
+
+            RESPONSE="$(cat /tmp/api_response.txt 2>/dev/null || true)"
+
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              break
+            fi
+
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ] && { [ "$HTTP_CODE" = "429" ] || [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ] || [ "$HTTP_CODE" = "504" ] || [ "$HTTP_CODE" = "000" ]; }; then
+              sleep $((ATTEMPT * 5))
+              ATTEMPT=$((ATTEMPT + 1))
+              continue
+            fi
+
+            break
+          done
 
           if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
             SNIPPET=$(printf "%s" "$RESPONSE" | tr '\n' ' ' | head -c 500)
-            echo "⚠️ 代码审查 API 返回了非 JSON 响应（HTTP ${HTTP_CODE}）。响应片段：${SNIPPET}" > /tmp/review_result.txt
+            echo "⚠️ 代码审查 API 返回了非 JSON 响应（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）。响应片段：${SNIPPET}" > /tmp/review_result.txt
             exit 0
           fi
 
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
             ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .message // "Unknown error"')
-            echo "⚠️ 代码审查 API 请求失败（HTTP ${HTTP_CODE}）：${ERROR}" > /tmp/review_result.txt
+            echo "⚠️ 代码审查 API 请求失败（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）：${ERROR}" > /tmp/review_result.txt
             exit 0
           fi
 
