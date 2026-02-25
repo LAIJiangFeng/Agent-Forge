@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${OPENAI_BASE_URL:-}" ]; then
-            echo "⚠️ Missing OPENAI_API_KEY or OPENAI_BASE_URL repository secret." > /tmp/review_result.txt
+            echo "⚠️ 缺少仓库密钥 OPENAI_API_KEY 或 OPENAI_BASE_URL。" > /tmp/review_result.txt
             exit 0
           fi
 
@@ -55,25 +55,25 @@ jobs:
           with open('/tmp/pr_diff.txt', 'r', encoding='utf-8') as f:
               diff = f.read()
 
-          prompt = f"""You are a senior code review assistant. Review this pull request diff strictly using the standards below.
+          prompt = f"""你是一位资深代码审查助手。请严格按以下规范审查本次 PR 代码差异，并且必须使用中文输出。
 
-          ## Review Standard
+          ## 审查标准
           {standard}
 
-          ## Project Focus
+          ## 项目审查重点
           {focus}
 
-          ## Pull Request Diff
+          ## 本次 PR 代码差异
           ```diff
           {diff}
           ```
 
-          Output format requirements:
-          1. Issues grouped by severity (Critical / Medium / Minor), each with reason, location, and fix suggestion
-          2. Quality score out of 100 and star rating
-          3. Issue statistics
-          4. Overall summary
-          5. Final conclusion (Approve / Request Changes / Comment Only)"""
+          输出格式要求：
+          1. 问题分级列表（🔴严重 / 🟡中等 / 🟢轻微），每个问题要包含原因、位置、修改建议
+          2. 📊 质量评分（满分 100）和星级评定
+          3. 🐛 问题统计
+          4. 📝 综合评语
+          5. ✅ 审查结论（Approve / Request Changes / Comment Only）"""
 
           payload = {
               "model": "gpt-5.3-codex",
@@ -95,13 +95,13 @@ jobs:
 
           if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
             SNIPPET=$(printf "%s" "$RESPONSE" | tr '\n' ' ' | head -c 500)
-            echo "⚠️ Code review API returned non-JSON response (HTTP ${HTTP_CODE}). Response snippet: ${SNIPPET}" > /tmp/review_result.txt
+            echo "⚠️ 代码审查 API 返回了非 JSON 响应（HTTP ${HTTP_CODE}）。响应片段：${SNIPPET}" > /tmp/review_result.txt
             exit 0
           fi
 
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
             ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .message // "Unknown error"')
-            echo "⚠️ Code review API request failed (HTTP ${HTTP_CODE}): ${ERROR}" > /tmp/review_result.txt
+            echo "⚠️ 代码审查 API 请求失败（HTTP ${HTTP_CODE}）：${ERROR}" > /tmp/review_result.txt
             exit 0
           fi
 
@@ -112,7 +112,7 @@ jobs:
           fi
 
           if [ -z "$REVIEW_BODY" ] || [ "$REVIEW_BODY" = "null" ]; then
-            REVIEW_BODY="⚠️ Code review API returned JSON but no review content."
+            REVIEW_BODY="⚠️ 代码审查 API 返回了 JSON，但未包含可解析的审查内容。"
           fi
 
           echo "$REVIEW_BODY" > /tmp/review_result.txt
@@ -123,7 +123,7 @@ jobs:
           script: |
             const fs = require('fs');
             const reviewBody = fs.readFileSync('/tmp/review_result.txt', 'utf8');
-            const body = `## 🤖 Codex Automated Code Review\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
+            const body = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
