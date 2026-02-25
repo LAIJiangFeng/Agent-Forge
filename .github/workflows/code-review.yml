@@ -21,7 +21,12 @@ jobs:
         id: diff
         run: |
           git fetch origin ${{ github.event.pull_request.base.ref }} --depth=50
-          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- '*.ts' '*.vue' '*.js' '*.css' '*.json' | head -c 80000 > /tmp/pr_diff.txt
+          git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD | head -c 8000 > /tmp/changed_files.txt
+          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- \
+            '*.ts' '*.tsx' '*.vue' \
+            '*.js' '*.jsx' '*.mjs' '*.cjs' \
+            '*.css' '*.scss' '*.less' \
+            '*.json' '*.yml' '*.yaml' '*.md' '*.html' | head -c 80000 > /tmp/pr_diff.txt
 
       - name: Read review standards
         id: standards
@@ -39,6 +44,12 @@ jobs:
 
           if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${OPENAI_BASE_URL:-}" ]; then
             echo "⚠️ 缺少仓库密钥 OPENAI_API_KEY 或 OPENAI_BASE_URL。" > /tmp/review_result.txt
+            exit 0
+          fi
+
+          if [ ! -s /tmp/pr_diff.txt ]; then
+            CHANGED_FILES="$(cat /tmp/changed_files.txt || true)"
+            echo "ℹ️ 当前 PR 存在改动，但在可审查类型中过滤后无 diff。已跟踪文件：${CHANGED_FILES}" > /tmp/review_result.txt
             exit 0
           fi
 
