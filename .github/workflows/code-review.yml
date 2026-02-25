@@ -26,7 +26,20 @@ jobs:
             '*.ts' '*.tsx' '*.vue' \
             '*.js' '*.jsx' '*.mjs' '*.cjs' \
             '*.css' '*.scss' '*.less' \
-            '*.json' '*.yml' '*.yaml' '*.md' '*.html' | head -n 2500 > /tmp/pr_diff.txt
+            '*.json' '*.yml' '*.yaml' '*.md' '*.html' | \
+            LC_ALL=C awk '
+              BEGIN { max_lines=2500; max_bytes=120000; bytes=0; truncated=0 }
+              NR <= max_lines {
+                line=$0 ORS
+                line_bytes=length(line)
+                if (bytes + line_bytes > max_bytes) { truncated=1; exit }
+                printf "%s", line
+                bytes += line_bytes
+                next
+              }
+              { truncated=1; exit }
+              END { print truncated > "/tmp/pr_diff_truncated.flag" }
+            ' > /tmp/pr_diff.txt
 
       - name: Read review standards
         id: standards
@@ -103,12 +116,22 @@ jobs:
           RESPONSE=""
 
           while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+            CURL_EXIT=0
             HTTP_CODE=$(curl -sS -o /tmp/api_response.txt -w "%{http_code}" \
               --connect-timeout 15 --max-time 180 \
               -X POST "${API_BASE_URL}/chat/completions" \
               -H "Content-Type: application/json" \
               -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-              -d @/tmp/api_payload.json || echo "000")
+              -d @/tmp/api_payload.json) || CURL_EXIT=$?
+
+            if [ "$CURL_EXIT" -ne 0 ]; then
+              HTTP_CODE="000"
+            else
+              HTTP_CODE=$(printf "%s" "$HTTP_CODE" | tr -cd '0-9' | tail -c 3)
+              if [ -z "$HTTP_CODE" ]; then
+                HTTP_CODE="000"
+              fi
+            fi
 
             RESPONSE="$(cat /tmp/api_response.txt 2>/dev/null || true)"
 
