@@ -21,12 +21,12 @@ jobs:
         id: diff
         run: |
           git fetch origin ${{ github.event.pull_request.base.ref }} --depth=50
-          git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD | head -c 8000 > /tmp/changed_files.txt
+          git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD | head -n 200 > /tmp/changed_files.txt
           git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- \
             '*.ts' '*.tsx' '*.vue' \
             '*.js' '*.jsx' '*.mjs' '*.cjs' \
             '*.css' '*.scss' '*.less' \
-            '*.json' '*.yml' '*.yaml' '*.md' '*.html' | head -c 80000 > /tmp/pr_diff.txt
+            '*.json' '*.yml' '*.yaml' '*.md' '*.html' | head -n 2500 > /tmp/pr_diff.txt
 
       - name: Read review standards
         id: standards
@@ -63,7 +63,7 @@ jobs:
               standard = f.read()
           with open('/tmp/project_focus.txt', 'r', encoding='utf-8') as f:
               focus = f.read()
-          with open('/tmp/pr_diff.txt', 'r', encoding='utf-8') as f:
+          with open('/tmp/pr_diff.txt', 'r', encoding='utf-8', errors='replace') as f:
               diff = f.read()
 
           prompt = f"""你是一位资深代码审查助手。请严格按以下规范审查本次 PR 代码差异，并且必须使用中文输出。
@@ -138,7 +138,15 @@ jobs:
           fi
 
           # Support both chat-completions and responses-like payload shapes.
-          REVIEW_BODY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // .output_text // empty')
+          REVIEW_BODY=$(echo "$RESPONSE" | jq -r '
+            if (.choices[0].message.content? | type) == "string" then
+              .choices[0].message.content
+            elif (.choices[0].message.content? | type) == "array" then
+              [ .choices[0].message.content[]? | if type == "string" then . elif type == "object" then (.text? // .content? // empty) else empty end ] | join("\n")
+            else
+              (.output_text // empty)
+            end
+          ')
           if [ -z "$REVIEW_BODY" ] || [ "$REVIEW_BODY" = "null" ]; then
             REVIEW_BODY=$(echo "$RESPONSE" | jq -r '[.output[]?.content[]?.text // empty] | join("\n")')
           fi
