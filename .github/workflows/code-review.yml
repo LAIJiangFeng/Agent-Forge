@@ -21,7 +21,25 @@ jobs:
         id: diff
         run: |
           git fetch origin ${{ github.event.pull_request.base.ref }} --depth=50
-          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- '*.ts' '*.vue' '*.js' '*.css' '*.json' | head -c 80000 > /tmp/pr_diff.txt
+          git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD | head -n 200 > /tmp/changed_files.txt
+          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- \
+            '*.ts' '*.tsx' '*.vue' \
+            '*.js' '*.jsx' '*.mjs' '*.cjs' \
+            '*.css' '*.scss' '*.less' \
+            '*.json' '*.yml' '*.yaml' '*.md' '*.html' | \
+            LC_ALL=C awk '
+              BEGIN { max_lines=2500; max_bytes=120000; bytes=0; truncated=0 }
+              NR <= max_lines {
+                line=$0 ORS
+                line_bytes=length(line)
+                if (bytes + line_bytes > max_bytes) { truncated=1; exit }
+                printf "%s", line
+                bytes += line_bytes
+                next
+              }
+              { truncated=1; exit }
+              END { print truncated > "/tmp/pr_diff_truncated.flag" }
+            ' > /tmp/pr_diff.txt
 
       - name: Read review standards
         id: standards
@@ -34,8 +52,95 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          REVIEW_SOFT_FAIL: ${{ vars.REVIEW_SOFT_FAIL || 'true' }}
+          REVIEW_ALLOWED_HOSTS: ${{ vars.REVIEW_ALLOWED_HOSTS || 'api.openai.com,newapi.sorai.me' }}
         run: |
-          # Use Python to build JSON payload - avoids all shell escaping issues
+          set -euo pipefail
+
+          fail_or_warn() {
+            local msg="$1"
+            echo "$msg" > /tmp/review_result.txt
+            if [ "${REVIEW_SOFT_FAIL:-false}" = "true" ]; then
+              exit 0
+            fi
+            exit 1
+          }
+
+          if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${OPENAI_BASE_URL:-}" ]; then
+            fail_or_warn "⚠️ 缺少仓库密钥 OPENAI_API_KEY 或 OPENAI_BASE_URL。"
+          fi
+
+          if [ ! -s /tmp/pr_diff.txt ]; then
+            CHANGED_FILES="$(cat /tmp/changed_files.txt || true)"
+            echo "ℹ️ 当前 PR 存在改动，但在可审查类型中过滤后无 diff。已跟踪文件：${CHANGED_FILES}" > /tmp/review_result.txt
+            exit 0
+          fi
+
+          TRUNCATED=$(cat /tmp/pr_diff_truncated.flag 2>/dev/null || echo 0)
+          if [ "$TRUNCATED" = "1" ]; then
+            {
+              echo "⚠️ 注意：本次 diff 已按阈值截断，以下仅包含部分变更。"
+              echo
+              cat /tmp/pr_diff.txt
+            } > /tmp/pr_diff_for_review.txt
+          else
+            cp /tmp/pr_diff.txt /tmp/pr_diff_for_review.txt
+          fi
+
+          API_BASE_URL="${OPENAI_BASE_URL%/}"
+          export API_BASE_URL
+          URL_VALIDATE_OUTPUT=""
+          URL_VALIDATE_EXIT=0
+          URL_VALIDATE_OUTPUT=$(python3 << 'PYTHON_EOF'
+          import os
+          from urllib.parse import urlparse
+
+          url = os.environ.get("API_BASE_URL", "")
+          allowed_hosts = [h.strip().lower() for h in os.environ.get("REVIEW_ALLOWED_HOSTS", "").split(",") if h.strip()]
+          parsed = urlparse(url)
+          host = (parsed.hostname or "").lower()
+
+          if parsed.scheme != "https":
+            print("OPENAI_BASE_URL 必须使用 https:// 协议。")
+            raise SystemExit(2)
+
+          if allowed_hosts and not any(host == h or host.endswith("." + h) for h in allowed_hosts):
+            print(f"OPENAI_BASE_URL 域名 {host} 不在允许列表中：{', '.join(allowed_hosts)}")
+            raise SystemExit(3)
+
+          print("OK")
+          PYTHON_EOF
+          ) || URL_VALIDATE_EXIT=$?
+
+          if [ "$URL_VALIDATE_EXIT" -ne 0 ]; then
+            fail_or_warn "⚠️ ${URL_VALIDATE_OUTPUT}"
+          fi
+
+          python3 << 'PYTHON_EOF'
+          import re
+
+          with open('/tmp/pr_diff_for_review.txt', 'r', encoding='utf-8', errors='replace') as f:
+              text = f.read()
+
+          redacted = 0
+          patterns = [
+              (r'AKIA[0-9A-Z]{16}', 'AKIA****************'),
+              (r'(?is)-----BEGIN [^-]+ PRIVATE KEY-----.*?-----END [^-]+ PRIVATE KEY-----', '***REDACTED_PRIVATE_KEY_BLOCK***'),
+              (r'(?i)(\\b(?:password|passwd|token|secret|api[_-]?key|authorization)\\b\\s*[:=]\\s*)([^\\s,;]+)', r'\\1***REDACTED***'),
+              (r'(?i)(bearer\\s+)[a-z0-9._\\-]+', r'\\1***REDACTED***'),
+          ]
+
+          for pattern, replacement in patterns:
+              text, n = re.subn(pattern, replacement, text)
+              redacted += n
+
+          with open('/tmp/pr_diff_sanitized.txt', 'w', encoding='utf-8') as f:
+              f.write(text)
+          with open('/tmp/redaction_count.txt', 'w', encoding='utf-8') as f:
+              f.write(str(redacted))
+          PYTHON_EOF
+
+          # Build request payload via Python to avoid shell escaping issues.
           python3 << 'PYTHON_EOF'
           import json
 
@@ -43,10 +148,10 @@ jobs:
               standard = f.read()
           with open('/tmp/project_focus.txt', 'r', encoding='utf-8') as f:
               focus = f.read()
-          with open('/tmp/pr_diff.txt', 'r', encoding='utf-8') as f:
+          with open('/tmp/pr_diff_sanitized.txt', 'r', encoding='utf-8', errors='replace') as f:
               diff = f.read()
 
-          prompt = f"""你是一位资深代码审查助手。请按照以下规范严格审查本次 PR 的代码差异。
+          prompt = f"""你是一位资深代码审查助手。请严格按以下规范审查本次 PR 代码差异，并且必须使用中文输出。
 
           ## 审查标准
           {standard}
@@ -59,51 +164,129 @@ jobs:
           {diff}
           ```
 
-          请严格按规范输出审查结果，包含：
-          1. 问题分级列表（🔴严重 / 🟡中等 / 🟢轻微），每个问题需说明原因、位置、建议修改方案
-          2. 📊 质量评分（满分100）和星级评定
+          输出格式要求：
+          1. 问题分级列表（🔴严重 / 🟡中等 / 🟢轻微），每个问题要包含原因、位置、修改建议
+          2. 📊 质量评分（满分 100）和星级评定
           3. 🐛 问题统计
           4. 📝 综合评语
           5. ✅ 审查结论（Approve / Request Changes / Comment Only）"""
 
-          payload = json.dumps({
+          payload = {
               "model": "gpt-5.3-codex",
               "messages": [{"role": "user", "content": prompt}],
               "max_tokens": 4096,
-              "temperature": 0.3
-          }, ensure_ascii=False)
+              "temperature": 0.3,
+          }
 
           with open('/tmp/api_payload.json', 'w', encoding='utf-8') as f:
-              f.write(payload)
+              f.write(json.dumps(payload, ensure_ascii=False))
           PYTHON_EOF
 
-          # Call OpenAI-compatible API using file input to avoid shell escaping
-          RESPONSE=$(curl -s -X POST "${OPENAI_BASE_URL}/chat/completions" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-            -d @/tmp/api_payload.json)
+          MAX_ATTEMPTS=3
+          ATTEMPT=1
+          HTTP_CODE="000"
+          RESPONSE=""
 
-          # Extract review content
-          REVIEW_BODY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+            : > /tmp/api_response.txt
+            CURL_EXIT=0
+            HTTP_CODE=$(curl -sS -o /tmp/api_response.txt -w "%{http_code}" \
+              --connect-timeout 15 --max-time 180 \
+              -X POST "${API_BASE_URL}/chat/completions" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+              -d @/tmp/api_payload.json) || CURL_EXIT=$?
 
-          if [ -z "$REVIEW_BODY" ]; then
-            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
-            REVIEW_BODY="⚠️ 代码审查 API 调用失败: ${ERROR}"
+            if [ "$CURL_EXIT" -ne 0 ]; then
+              HTTP_CODE="000"
+              RESPONSE=""
+            else
+              HTTP_CODE=$(printf "%s" "$HTTP_CODE" | tr -cd '0-9' | tail -c 3)
+              if [ -z "$HTTP_CODE" ]; then
+                HTTP_CODE="000"
+              fi
+              RESPONSE="$(cat /tmp/api_response.txt 2>/dev/null || true)"
+            fi
+
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              break
+            fi
+
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ] && { [ "$HTTP_CODE" = "429" ] || [ "$HTTP_CODE" = "502" ] || [ "$HTTP_CODE" = "503" ] || [ "$HTTP_CODE" = "504" ] || [ "$HTTP_CODE" = "000" ]; }; then
+              sleep $((ATTEMPT * 5))
+              ATTEMPT=$((ATTEMPT + 1))
+              continue
+            fi
+
+            break
+          done
+
+          if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+            SNIPPET=$(printf "%s" "$RESPONSE" | tr '\n' ' ' | cut -c1-500)
+            fail_or_warn "⚠️ 代码审查 API 返回了非 JSON 响应（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）。响应片段：${SNIPPET}"
           fi
 
-          # Save to file (avoid delimiter issues)
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .message // "Unknown error"')
+            fail_or_warn "⚠️ 代码审查 API 请求失败（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）：${ERROR}"
+          fi
+
+          # Support both chat-completions and responses-like payload shapes.
+          REVIEW_BODY=$(echo "$RESPONSE" | jq -r '
+            if (.choices[0].message.content? | type) == "string" then
+              .choices[0].message.content
+            elif (.choices[0].message.content? | type) == "array" then
+              [ .choices[0].message.content[]? | if type == "string" then . elif type == "object" then (.text? // .content? // empty) else empty end ] | join("\n")
+            else
+              (.output_text // empty)
+            end
+          ')
+          if [ -z "$REVIEW_BODY" ] || [ "$REVIEW_BODY" = "null" ]; then
+            REVIEW_BODY=$(echo "$RESPONSE" | jq -r '[.output[]?.content[]?.text // empty] | join("\n")')
+          fi
+
+          if [ -z "$REVIEW_BODY" ] || [ "$REVIEW_BODY" = "null" ]; then
+            REVIEW_BODY="⚠️ 代码审查 API 返回了 JSON，但未包含可解析的审查内容。"
+          fi
+
+          REDACTION_COUNT="$(cat /tmp/redaction_count.txt 2>/dev/null || echo 0)"
+          if [ "${REDACTION_COUNT}" -gt 0 ] 2>/dev/null; then
+            REVIEW_BODY="🔐 已执行敏感信息脱敏处理（${REDACTION_COUNT} 处）。"$'\n\n'"${REVIEW_BODY}"
+          else
+            REVIEW_BODY="🔐 已执行敏感信息脱敏扫描。"$'\n\n'"${REVIEW_BODY}"
+          fi
+
+          if [ "$TRUNCATED" = "1" ]; then
+            REVIEW_BODY="⚠️ 本次审查基于截断 diff，可能未覆盖全部改动。"$'\n\n'"${REVIEW_BODY}"
+          fi
+
           echo "$REVIEW_BODY" > /tmp/review_result.txt
 
       - name: Post Review Comment
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const reviewBody = fs.readFileSync('/tmp/review_result.txt', 'utf8');
-            const body = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            const reviewResultPath = '/tmp/review_result.txt';
+            const reviewBody = fs.existsSync(reviewResultPath)
+              ? fs.readFileSync(reviewResultPath, 'utf8')
+              : '⚠️ 审查流程异常终止，未生成可用审查结果。';
+            const rawBody = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
+            const maxCommentLen = 60000;
+            const truncateSuffix = '\n\n...(评论内容已截断，避免超过 GitHub 长度限制)';
+            const body = rawBody.length > maxCommentLen
+              ? `${rawBody.slice(0, maxCommentLen - truncateSuffix.length)}${truncateSuffix}`
+              : rawBody;
+
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body
+              });
+            } catch (error) {
+              console.error('Failed to create review comment:', error);
+              throw error;
+            }
