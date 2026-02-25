@@ -53,6 +53,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           REVIEW_SOFT_FAIL: ${{ vars.REVIEW_SOFT_FAIL || 'false' }}
+          REVIEW_ALLOWED_HOSTS: ${{ vars.REVIEW_ALLOWED_HOSTS || 'api.openai.com,newapi.sorai.me' }}
         run: |
           set -euo pipefail
 
@@ -87,6 +88,57 @@ jobs:
           fi
 
           API_BASE_URL="${OPENAI_BASE_URL%/}"
+          export API_BASE_URL
+          URL_VALIDATE_OUTPUT=""
+          URL_VALIDATE_EXIT=0
+          URL_VALIDATE_OUTPUT=$(python3 << 'PYTHON_EOF'
+          import os
+          from urllib.parse import urlparse
+
+          url = os.environ.get("API_BASE_URL", "")
+          allowed_hosts = [h.strip().lower() for h in os.environ.get("REVIEW_ALLOWED_HOSTS", "").split(",") if h.strip()]
+          parsed = urlparse(url)
+          host = (parsed.hostname or "").lower()
+
+          if parsed.scheme != "https":
+            print("OPENAI_BASE_URL 必须使用 https:// 协议。")
+            raise SystemExit(2)
+
+          if allowed_hosts and not any(host == h or host.endswith("." + h) for h in allowed_hosts):
+            print(f"OPENAI_BASE_URL 域名 {host} 不在允许列表中：{', '.join(allowed_hosts)}")
+            raise SystemExit(3)
+
+          print("OK")
+          PYTHON_EOF
+          ) || URL_VALIDATE_EXIT=$?
+
+          if [ "$URL_VALIDATE_EXIT" -ne 0 ]; then
+            fail_or_warn "⚠️ ${URL_VALIDATE_OUTPUT}"
+          fi
+
+          python3 << 'PYTHON_EOF'
+          import re
+
+          with open('/tmp/pr_diff_for_review.txt', 'r', encoding='utf-8', errors='replace') as f:
+              text = f.read()
+
+          redacted = 0
+          patterns = [
+              (r'AKIA[0-9A-Z]{16}', 'AKIA****************'),
+              (r'(?is)-----BEGIN [^-]+ PRIVATE KEY-----.*?-----END [^-]+ PRIVATE KEY-----', '***REDACTED_PRIVATE_KEY_BLOCK***'),
+              (r'(?i)(\\b(?:password|passwd|token|secret|api[_-]?key|authorization)\\b\\s*[:=]\\s*)([^\\s,;]+)', r'\\1***REDACTED***'),
+              (r'(?i)(bearer\\s+)[a-z0-9._\\-]+', r'\\1***REDACTED***'),
+          ]
+
+          for pattern, replacement in patterns:
+              text, n = re.subn(pattern, replacement, text)
+              redacted += n
+
+          with open('/tmp/pr_diff_sanitized.txt', 'w', encoding='utf-8') as f:
+              f.write(text)
+          with open('/tmp/redaction_count.txt', 'w', encoding='utf-8') as f:
+              f.write(str(redacted))
+          PYTHON_EOF
 
           # Build request payload via Python to avoid shell escaping issues.
           python3 << 'PYTHON_EOF'
@@ -96,7 +148,7 @@ jobs:
               standard = f.read()
           with open('/tmp/project_focus.txt', 'r', encoding='utf-8') as f:
               focus = f.read()
-          with open('/tmp/pr_diff_for_review.txt', 'r', encoding='utf-8', errors='replace') as f:
+          with open('/tmp/pr_diff_sanitized.txt', 'r', encoding='utf-8', errors='replace') as f:
               diff = f.read()
 
           prompt = f"""你是一位资深代码审查助手。请严格按以下规范审查本次 PR 代码差异，并且必须使用中文输出。
@@ -197,6 +249,13 @@ jobs:
             REVIEW_BODY="⚠️ 代码审查 API 返回了 JSON，但未包含可解析的审查内容。"
           fi
 
+          REDACTION_COUNT="$(cat /tmp/redaction_count.txt 2>/dev/null || echo 0)"
+          if [ "${REDACTION_COUNT}" -gt 0 ] 2>/dev/null; then
+            REVIEW_BODY="🔐 已执行敏感信息脱敏处理（${REDACTION_COUNT} 处）。"$'\n\n'"${REVIEW_BODY}"
+          else
+            REVIEW_BODY="🔐 已执行敏感信息脱敏扫描。"$'\n\n'"${REVIEW_BODY}"
+          fi
+
           if [ "$TRUNCATED" = "1" ]; then
             REVIEW_BODY="⚠️ 本次审查基于截断 diff，可能未覆盖全部改动。"$'\n\n'"${REVIEW_BODY}"
           fi
@@ -213,10 +272,21 @@ jobs:
             const reviewBody = fs.existsSync(reviewResultPath)
               ? fs.readFileSync(reviewResultPath, 'utf8')
               : '⚠️ 审查流程异常终止，未生成可用审查结果。';
-            const body = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });
+            const rawBody = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
+            const maxCommentLen = 60000;
+            const truncateSuffix = '\n\n...(评论内容已截断，避免超过 GitHub 长度限制)';
+            const body = rawBody.length > maxCommentLen
+              ? `${rawBody.slice(0, maxCommentLen - truncateSuffix.length)}${truncateSuffix}`
+              : rawBody;
+
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body
+              });
+            } catch (error) {
+              console.error('Failed to create review comment:', error);
+              throw error;
+            }
