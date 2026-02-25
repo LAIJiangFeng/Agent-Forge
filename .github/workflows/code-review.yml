@@ -21,17 +21,13 @@ jobs:
         id: diff
         run: |
           git fetch origin ${{ github.event.pull_request.base.ref }} --depth=50
-          DIFF=$(git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- '*.ts' '*.vue' '*.js' '*.css' '*.json' | head -c 80000)
-          # Save diff to file to avoid shell escaping issues
-          echo "$DIFF" > /tmp/pr_diff.txt
+          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD -- '*.ts' '*.vue' '*.js' '*.css' '*.json' | head -c 80000 > /tmp/pr_diff.txt
 
       - name: Read review standards
         id: standards
         run: |
-          STANDARD=$(cat .github/review-standards/review-standard-v2.md)
-          FOCUS=$(cat .github/review-standards/project-review-focus.md)
-          echo "$STANDARD" > /tmp/review_standard.txt
-          echo "$FOCUS" > /tmp/project_focus.txt
+          cp .github/review-standards/review-standard-v2.md /tmp/review_standard.txt
+          cp .github/review-standards/project-review-focus.md /tmp/project_focus.txt
 
       - name: Codex Code Review
         id: review
@@ -39,31 +35,28 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
         run: |
-          # Build the prompt and write to file to avoid shell escaping issues
-          cat > /tmp/prompt.txt << 'PROMPT_EOF'
-          你是一位资深代码审查助手。请按照以下规范严格审查本次 PR 的代码差异。
+          # Use Python to build JSON payload - avoids all shell escaping issues
+          python3 << 'PYTHON_EOF'
+          import json
+
+          with open('/tmp/review_standard.txt', 'r', encoding='utf-8') as f:
+              standard = f.read()
+          with open('/tmp/project_focus.txt', 'r', encoding='utf-8') as f:
+              focus = f.read()
+          with open('/tmp/pr_diff.txt', 'r', encoding='utf-8') as f:
+              diff = f.read()
+
+          prompt = f"""你是一位资深代码审查助手。请按照以下规范严格审查本次 PR 的代码差异。
 
           ## 审查标准
-          PROMPT_EOF
-
-          cat /tmp/review_standard.txt >> /tmp/prompt.txt
-
-          cat >> /tmp/prompt.txt << 'PROMPT_EOF'
+          {standard}
 
           ## 项目审查重点
-          PROMPT_EOF
-
-          cat /tmp/project_focus.txt >> /tmp/prompt.txt
-
-          cat >> /tmp/prompt.txt << 'PROMPT_EOF'
+          {focus}
 
           ## 本次 PR 代码差异
           ```diff
-          PROMPT_EOF
-
-          cat /tmp/pr_diff.txt >> /tmp/prompt.txt
-
-          cat >> /tmp/prompt.txt << 'PROMPT_EOF'
+          {diff}
           ```
 
           请严格按规范输出审查结果，包含：
@@ -71,21 +64,24 @@ jobs:
           2. 📊 质量评分（满分100）和星级评定
           3. 🐛 问题统计
           4. 📝 综合评语
-          5. ✅ 审查结论（Approve / Request Changes / Comment Only）
-          PROMPT_EOF
+          5. ✅ 审查结论（Approve / Request Changes / Comment Only）"""
 
-          # Call OpenAI-compatible API using --rawfile to safely pass prompt content
+          payload = json.dumps({
+              "model": "gpt-5.3-codex",
+              "messages": [{"role": "user", "content": prompt}],
+              "max_tokens": 4096,
+              "temperature": 0.3
+          }, ensure_ascii=False)
+
+          with open('/tmp/api_payload.json', 'w', encoding='utf-8') as f:
+              f.write(payload)
+          PYTHON_EOF
+
+          # Call OpenAI-compatible API using file input to avoid shell escaping
           RESPONSE=$(curl -s -X POST "${OPENAI_BASE_URL}/chat/completions" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-            -d "$(jq -n \
-              --rawfile prompt /tmp/prompt.txt \
-              '{
-                model: "gpt-5.3-codex",
-                messages: [{role: "user", content: $prompt}],
-                max_tokens: 4096,
-                temperature: 0.3
-              }')")
+            -d @/tmp/api_payload.json)
 
           # Extract review content
           REVIEW_BODY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
