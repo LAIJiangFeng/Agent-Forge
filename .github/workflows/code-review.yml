@@ -52,12 +52,21 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          REVIEW_SOFT_FAIL: ${{ vars.REVIEW_SOFT_FAIL || 'false' }}
         run: |
           set -euo pipefail
 
+          fail_or_warn() {
+            local msg="$1"
+            echo "$msg" > /tmp/review_result.txt
+            if [ "${REVIEW_SOFT_FAIL:-false}" = "true" ]; then
+              exit 0
+            fi
+            exit 1
+          }
+
           if [ -z "${OPENAI_API_KEY:-}" ] || [ -z "${OPENAI_BASE_URL:-}" ]; then
-            echo "⚠️ 缺少仓库密钥 OPENAI_API_KEY 或 OPENAI_BASE_URL。" > /tmp/review_result.txt
-            exit 0
+            fail_or_warn "⚠️ 缺少仓库密钥 OPENAI_API_KEY 或 OPENAI_BASE_URL。"
           fi
 
           if [ ! -s /tmp/pr_diff.txt ]; then
@@ -161,15 +170,13 @@ jobs:
           done
 
           if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
-            SNIPPET=$(printf "%s" "$RESPONSE" | tr '\n' ' ' | head -c 500)
-            echo "⚠️ 代码审查 API 返回了非 JSON 响应（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）。响应片段：${SNIPPET}" > /tmp/review_result.txt
-            exit 0
+            SNIPPET=$(printf "%s" "$RESPONSE" | tr '\n' ' ' | cut -c1-500)
+            fail_or_warn "⚠️ 代码审查 API 返回了非 JSON 响应（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）。响应片段：${SNIPPET}"
           fi
 
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
             ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .message // "Unknown error"')
-            echo "⚠️ 代码审查 API 请求失败（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）：${ERROR}" > /tmp/review_result.txt
-            exit 0
+            fail_or_warn "⚠️ 代码审查 API 请求失败（HTTP ${HTTP_CODE}，重试 ${ATTEMPT}/${MAX_ATTEMPTS} 次）：${ERROR}"
           fi
 
           # Support both chat-completions and responses-like payload shapes.
@@ -197,11 +204,15 @@ jobs:
           echo "$REVIEW_BODY" > /tmp/review_result.txt
 
       - name: Post Review Comment
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const reviewBody = fs.readFileSync('/tmp/review_result.txt', 'utf8');
+            const reviewResultPath = '/tmp/review_result.txt';
+            const reviewBody = fs.existsSync(reviewResultPath)
+              ? fs.readFileSync(reviewResultPath, 'utf8')
+              : '⚠️ 审查流程异常终止，未生成可用审查结果。';
             const body = `## 🤖 Codex 自动代码审查\n\n${reviewBody}\n\n---\n_Powered by gpt-5.3-codex | PR #${context.issue.number}_`;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
