@@ -66,6 +66,17 @@ jobs:
             exit 0
           fi
 
+          TRUNCATED=$(cat /tmp/pr_diff_truncated.flag 2>/dev/null || echo 0)
+          if [ "$TRUNCATED" = "1" ]; then
+            {
+              echo "⚠️ 注意：本次 diff 已按阈值截断，以下仅包含部分变更。"
+              echo
+              cat /tmp/pr_diff.txt
+            } > /tmp/pr_diff_for_review.txt
+          else
+            cp /tmp/pr_diff.txt /tmp/pr_diff_for_review.txt
+          fi
+
           API_BASE_URL="${OPENAI_BASE_URL%/}"
 
           # Build request payload via Python to avoid shell escaping issues.
@@ -76,7 +87,7 @@ jobs:
               standard = f.read()
           with open('/tmp/project_focus.txt', 'r', encoding='utf-8') as f:
               focus = f.read()
-          with open('/tmp/pr_diff.txt', 'r', encoding='utf-8', errors='replace') as f:
+          with open('/tmp/pr_diff_for_review.txt', 'r', encoding='utf-8', errors='replace') as f:
               diff = f.read()
 
           prompt = f"""你是一位资深代码审查助手。请严格按以下规范审查本次 PR 代码差异，并且必须使用中文输出。
@@ -116,6 +127,7 @@ jobs:
           RESPONSE=""
 
           while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+            : > /tmp/api_response.txt
             CURL_EXIT=0
             HTTP_CODE=$(curl -sS -o /tmp/api_response.txt -w "%{http_code}" \
               --connect-timeout 15 --max-time 180 \
@@ -126,14 +138,14 @@ jobs:
 
             if [ "$CURL_EXIT" -ne 0 ]; then
               HTTP_CODE="000"
+              RESPONSE=""
             else
               HTTP_CODE=$(printf "%s" "$HTTP_CODE" | tr -cd '0-9' | tail -c 3)
               if [ -z "$HTTP_CODE" ]; then
                 HTTP_CODE="000"
               fi
+              RESPONSE="$(cat /tmp/api_response.txt 2>/dev/null || true)"
             fi
-
-            RESPONSE="$(cat /tmp/api_response.txt 2>/dev/null || true)"
 
             if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
               break
@@ -176,6 +188,10 @@ jobs:
 
           if [ -z "$REVIEW_BODY" ] || [ "$REVIEW_BODY" = "null" ]; then
             REVIEW_BODY="⚠️ 代码审查 API 返回了 JSON，但未包含可解析的审查内容。"
+          fi
+
+          if [ "$TRUNCATED" = "1" ]; then
+            REVIEW_BODY="⚠️ 本次审查基于截断 diff，可能未覆盖全部改动。"$'\n\n'"${REVIEW_BODY}"
           fi
 
           echo "$REVIEW_BODY" > /tmp/review_result.txt
