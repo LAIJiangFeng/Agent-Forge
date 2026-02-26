@@ -221,7 +221,7 @@ onMounted(() => {
         </div>
 
         <!-- 详情模式 -->
-        <div v-else class="h-full overflow-y-auto p-8 max-w-4xl space-y-6">
+        <div v-else class="h-full overflow-y-auto p-8 space-y-6">
           <!-- 执行命令 -->
           <div
             class="bg-forge-panel border border-forge-border p-5 rounded-lg relative overflow-hidden group hover:border-blue-900/40 transition-all duration-300"
