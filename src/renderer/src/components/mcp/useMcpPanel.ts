@@ -90,7 +90,8 @@ export const useMcpPanel = () => {
 
   const checkHealth = async () => {
     const requestId = ++latestHealthRequestId
-    const serverSnapshot = allServers.value.map((server) => ({ ...server }))
+    // Deep-clone to strip Vue reactive proxies which can fail IPC serialization
+    const serverSnapshot = JSON.parse(JSON.stringify(allServers.value)) as typeof allServers.value
     if (serverSnapshot.length === 0) {
       healthStatus.value = {}
       healthChecking.value = false
@@ -104,7 +105,7 @@ export const useMcpPanel = () => {
         healthStatus.value = result
       }
     } catch (err) {
-      console.error('Health check failed:', err)
+      console.error('[MCP] Health check failed:', err)
     } finally {
       if (requestId === latestHealthRequestId) {
         healthChecking.value = false
@@ -112,7 +113,7 @@ export const useMcpPanel = () => {
     }
   }
 
-  const loadMcp = async () => {
+  const loadMcp = async (initialServerId?: string) => {
     loading.value = true
     try {
       const previousSelectedId = selectedServer.value?.id ?? null
@@ -121,6 +122,11 @@ export const useMcpPanel = () => {
       if (allServers.value.length === 0) {
         selectedServer.value = null
         selectedConfigPath.value = null
+      } else if (initialServerId) {
+        // Deep-link from dashboard: select the specified server
+        const target = allServers.value.find((s) => s.id === initialServerId) || allServers.value[0]
+        selectedServer.value = target
+        selectedConfigPath.value = target.configPath
       } else if (previousSelectedId) {
         const refreshedSelected =
           allServers.value.find((server) => server.id === previousSelectedId) || allServers.value[0]
@@ -146,6 +152,63 @@ export const useMcpPanel = () => {
     saveStatus.value = 'idle'
   }
 
+  /**
+   * 在 parsed config 中找到包含指定 serverName 的 mcpServers 容器
+   * 支持:
+   *   - 顶层 { mcpServers: {...} }
+   *   - .claude.json 格式 { projects: { [path]: { mcpServers: {...} } } }
+   *   - _disabled_mcpServers
+   */
+  const findServerScope = (
+    fullConfig: Record<string, unknown>,
+    serverName: string,
+    projectPath?: string
+  ): { container: Record<string, unknown>; key: 'mcpServers' | '_disabled_mcpServers' } | null => {
+    // 如果有 projectPath，优先在 projects[projectPath] 中查找
+    if (projectPath) {
+      const projects = fullConfig.projects as Record<string, Record<string, unknown>> | undefined
+      if (projects && projects[projectPath]) {
+        const scope = projects[projectPath]
+        const mcpServers = scope.mcpServers as Record<string, unknown> | undefined
+        if (mcpServers && serverName in mcpServers) {
+          return { container: scope, key: 'mcpServers' }
+        }
+        const disabled = scope._disabled_mcpServers as Record<string, unknown> | undefined
+        if (disabled && serverName in disabled) {
+          return { container: scope, key: '_disabled_mcpServers' }
+        }
+      }
+    }
+
+    // 顶层 mcpServers
+    const topMcp = fullConfig.mcpServers as Record<string, unknown> | undefined
+    if (topMcp && serverName in topMcp) {
+      return { container: fullConfig, key: 'mcpServers' }
+    }
+    const topDisabled = fullConfig._disabled_mcpServers as Record<string, unknown> | undefined
+    if (topDisabled && serverName in topDisabled) {
+      return { container: fullConfig, key: '_disabled_mcpServers' }
+    }
+
+    // 遍历所有 projects
+    const projects = fullConfig.projects as Record<string, Record<string, unknown>> | undefined
+    if (projects) {
+      for (const pConfig of Object.values(projects)) {
+        if (!pConfig || typeof pConfig !== 'object') continue
+        const mcpSrv = pConfig.mcpServers as Record<string, unknown> | undefined
+        if (mcpSrv && serverName in mcpSrv) {
+          return { container: pConfig, key: 'mcpServers' }
+        }
+        const disSrv = pConfig._disabled_mcpServers as Record<string, unknown> | undefined
+        if (disSrv && serverName in disSrv) {
+          return { container: pConfig, key: '_disabled_mcpServers' }
+        }
+      }
+    }
+
+    return null
+  }
+
   const toggleEdit = async () => {
     if (isEditing.value) {
       isEditing.value = false
@@ -156,7 +219,20 @@ export const useMcpPanel = () => {
 
     try {
       const content = await window.api.getMcpConfig(selectedConfigPath.value)
-      editValue.value = content
+      const serverName = selectedServer.value?.name
+      if (!serverName) return
+
+      const fullConfig = JSON.parse(content)
+      const scope = findServerScope(fullConfig, serverName, selectedServer.value?.projectPath)
+
+      if (scope) {
+        const servers = scope.container[scope.key] as Record<string, unknown>
+        const serverConfig = servers[serverName]
+        editValue.value = JSON.stringify({ [serverName]: serverConfig }, null, 2)
+      } else {
+        // fallback：显示整个文件
+        editValue.value = content
+      }
       isEditing.value = true
     } catch (err) {
       console.error('Failed to load MCP config:', err)
@@ -169,7 +245,74 @@ export const useMcpPanel = () => {
 
     saveStatus.value = 'saving'
     try {
-      await window.api.saveMcpConfig(selectedConfigPath.value, editValue.value)
+      let editedObj: unknown
+      try {
+        editedObj = JSON.parse(editValue.value)
+      } catch {
+        throw new Error('JSON 格式错误，请检查后重试')
+      }
+
+      // 结构校验：必须是纯对象
+      if (
+        editedObj === null ||
+        typeof editedObj !== 'object' ||
+        Array.isArray(editedObj)
+      ) {
+        throw new Error('配置必须是 JSON 对象（不能是数组或原始类型）')
+      }
+
+      const editedRecord = editedObj as Record<string, unknown>
+      const editedKeys = Object.keys(editedRecord)
+
+      // 单服务编辑模式：限制只能有 1 个 key
+      if (editedKeys.length === 0) {
+        throw new Error('配置不能为空对象，请至少保留服务名称')
+      }
+      if (editedKeys.length > 1) {
+        throw new Error(`单服务编辑模式只允许 1 个顶层 key，当前有 ${editedKeys.length} 个`)
+      }
+
+      // server config 值必须是对象
+      const serverConfigValue = editedRecord[editedKeys[0]]
+      if (
+        serverConfigValue === null ||
+        typeof serverConfigValue !== 'object' ||
+        Array.isArray(serverConfigValue)
+      ) {
+        throw new Error('服务配置值必须是 JSON 对象（如 { "command": "...", "args": [...] }）')
+      }
+
+      const fullContent = await window.api.getMcpConfig(selectedConfigPath.value)
+      const fullConfig = JSON.parse(fullContent)
+
+      const oldName = selectedServer.value?.name
+      const scope = oldName
+        ? findServerScope(fullConfig, oldName, selectedServer.value?.projectPath)
+        : null
+
+      if (scope && oldName) {
+        const servers = scope.container[scope.key] as Record<string, unknown>
+        const newName = editedKeys[0]
+
+        // 重命名冲突检测：如果目标名称已存在，阻止覆盖
+        if (newName !== oldName && servers[newName]) {
+          throw new Error(`服务名 "${newName}" 已存在，请使用其他名称`)
+        }
+
+        // 如果重命名了 server，删除旧的
+        if (newName !== oldName) {
+          delete servers[oldName]
+        }
+        // 写入新配置（仅一个 key）
+        servers[newName] = editedRecord[newName]
+      } else {
+        // fallback：确保顶层 mcpServers 存在并合并（仅一个 key）
+        if (!fullConfig.mcpServers) fullConfig.mcpServers = {}
+        fullConfig.mcpServers[editedKeys[0]] = editedRecord[editedKeys[0]]
+      }
+
+      const mergedContent = JSON.stringify(fullConfig, null, 2)
+      await window.api.saveMcpConfig(selectedConfigPath.value, mergedContent)
       saveStatus.value = 'success'
       isEditing.value = false
       await loadMcp()
@@ -421,10 +564,14 @@ export const useMcpPanel = () => {
     dxtError.value = ''
     try {
       const hasValues = Object.keys(dxtUserConfigValues.value).length > 0
+      // Vue reactive Proxy 对象无法通过 Electron IPC 结构化克隆，需转换为普通对象
+      const plainConfigValues = hasValues
+        ? Object.fromEntries(Object.entries(dxtUserConfigValues.value))
+        : undefined
       await window.api.installDxt(
-        dxtFilePath.value,
-        dxtConfigPath.value,
-        hasValues ? dxtUserConfigValues.value : undefined
+        String(dxtFilePath.value),
+        String(dxtConfigPath.value),
+        plainConfigValues
       )
       showDxtModal.value = false
       await loadMcp()

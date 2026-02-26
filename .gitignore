@@ -10,8 +10,14 @@ out
 Thumbs.db
 
 # IDE / Editor
-.vscode
+# .vscode 中的项目配置（extensions.json / launch.json / settings.json）需要提交
+# 只忽略纯个人本地配置文件
+.vscode/*.code-snippets
+.vscode/keybindings.json
 .idea
+
+# Antigravity AI assistant local data
+.golutra
 
 # Claude Code
 .claude

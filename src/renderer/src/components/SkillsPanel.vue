@@ -4,6 +4,10 @@ import { Editor } from '@guolao/vue-monaco-editor'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
+const props = defineProps<{
+  initialSkillId?: string
+}>()
+
 // 配置 marked
 marked.setOptions({
   breaks: true,
@@ -37,6 +41,16 @@ interface TranslatedContent {
   features: string[]
 }
 
+interface MarketplaceSkill {
+  name: string
+  description: string
+  author: string
+  github_url: string
+  stars: number
+  tags: string[]
+  updated_at: string
+}
+
 const skills = ref<Skill[]>([])
 const selectedSkill = ref<Skill | null>(null)
 const isEditing = ref(false)
@@ -45,6 +59,21 @@ const searchQuery = ref('')
 const loading = ref(true)
 const saveStatus = ref<'idle' | 'saving' | 'success' | 'error'>('idle')
 const copyStatus = ref<Record<string, boolean>>({})
+const showMarketplaceModal = ref(false)
+const marketplaceQuery = ref('')
+const marketplaceSortBy = ref<'stars' | 'recent'>('stars')
+const marketplaceLoading = ref(false)
+const marketplaceError = ref('')
+const marketplaceResults = ref<MarketplaceSkill[]>([])
+const marketplacePage = ref(1)
+const marketplaceTotal = ref(0)
+const marketplaceHasSearched = ref(false)
+const marketplaceInstallState = ref<Record<string, 'idle' | 'installing' | 'success' | 'error'>>(
+  {}
+)
+const marketplaceInstallError = ref('')
+const marketplaceInstallMessage = ref('')
+const MARKETPLACE_PAGE_SIZE = 12
 
 // 翻译状态
 const translatedCache = ref<Record<string, TranslatedContent>>({})
@@ -78,6 +107,10 @@ const hasTranslation = computed(() => {
   return !!translatedCache.value[selectedSkill.value.id]
 })
 
+const marketplaceTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(marketplaceTotal.value / MARKETPLACE_PAGE_SIZE))
+})
+
 // 搜索过滤
 const filteredSkills = computed(() => {
   if (!searchQuery.value) return skills.value
@@ -90,18 +123,138 @@ const filteredSkills = computed(() => {
   )
 })
 
+const formatError = (err: unknown): string => {
+  if (err instanceof Error) return err.message
+  return String(err || 'Unknown error')
+}
+
+const normalizeInstallName = (name: string): string => {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80)
+}
+
+const marketplaceKey = (skill: MarketplaceSkill): string => `${skill.name}::${skill.github_url}`
+
+const isMarketplaceInstalled = (skill: MarketplaceSkill): boolean => {
+  const normalized = normalizeInstallName(skill.name)
+  if (!normalized) return false
+  const suffix = `/${normalized}/skill.md`
+  return skills.value.some((s) => s.filePath.replace(/\\/g, '/').toLowerCase().endsWith(suffix))
+}
+
 // 加载 Skills
 const loadSkills = async () => {
   loading.value = true
   try {
+    const prevSelectedId = selectedSkill.value?.id
     skills.value = await window.api.scanSkills()
-    if (skills.value.length > 0 && !selectedSkill.value) {
+    if (skills.value.length === 0) {
+      selectedSkill.value = null
+    } else if (props.initialSkillId) {
+      // Deep-link from dashboard: select the specific skill
+      selectedSkill.value = skills.value.find((s) => s.id === props.initialSkillId) || skills.value[0]
+    } else if (prevSelectedId) {
+      selectedSkill.value = skills.value.find((s) => s.id === prevSelectedId) || skills.value[0]
+    } else if (!selectedSkill.value) {
       selectedSkill.value = skills.value[0]
     }
   } catch (err) {
     console.error('Failed to scan skills:', err)
   } finally {
     loading.value = false
+  }
+}
+
+const openMarketplaceModal = () => {
+  showMarketplaceModal.value = true
+}
+
+const closeMarketplaceModal = () => {
+  showMarketplaceModal.value = false
+}
+
+const searchMarketplace = async (page = 1) => {
+  const query = marketplaceQuery.value.trim()
+  if (!query) {
+    marketplaceResults.value = []
+    marketplaceTotal.value = 0
+    marketplacePage.value = 1
+    marketplaceHasSearched.value = false
+    marketplaceError.value = ''
+    return
+  }
+
+  marketplaceLoading.value = true
+  marketplaceError.value = ''
+  marketplaceInstallMessage.value = ''
+  marketplaceInstallError.value = ''
+  marketplaceHasSearched.value = true
+  const targetPage = Math.max(1, page)
+
+  try {
+    const result = await window.api.searchMarketplace(
+      query,
+      targetPage,
+      MARKETPLACE_PAGE_SIZE,
+      marketplaceSortBy.value
+    )
+    marketplaceResults.value = result.skills || []
+    marketplaceTotal.value = Math.max(0, Number(result.total) || 0)
+    marketplacePage.value = Math.max(1, Number(result.page) || targetPage)
+  } catch (err) {
+    marketplaceResults.value = []
+    marketplaceTotal.value = 0
+    marketplacePage.value = 1
+    marketplaceError.value = formatError(err)
+  } finally {
+    marketplaceLoading.value = false
+  }
+}
+
+const triggerMarketplaceSearch = () => {
+  marketplacePage.value = 1
+  void searchMarketplace(1)
+}
+
+const changeMarketplacePage = (nextPage: number) => {
+  if (nextPage < 1 || nextPage > marketplaceTotalPages.value) return
+  void searchMarketplace(nextPage)
+}
+
+const installMarketplace = async (marketSkill: MarketplaceSkill) => {
+  const key = marketplaceKey(marketSkill)
+  if (marketplaceInstallState.value[key] === 'installing') return
+
+  marketplaceInstallState.value[key] = 'installing'
+  marketplaceInstallMessage.value = ''
+  marketplaceInstallError.value = ''
+  marketplaceError.value = ''
+
+  try {
+    const result = await window.api.installMarketplaceSkill(marketSkill.name, marketSkill.github_url)
+    await loadSkills()
+
+    const suffix = `/${result.skillName.toLowerCase()}/skill.md`
+    const installed = skills.value.find((s) =>
+      s.filePath.replace(/\\/g, '/').toLowerCase().endsWith(suffix)
+    )
+    if (installed) selectSkill(installed)
+
+    marketplaceInstallState.value[key] = 'success'
+    marketplaceInstallMessage.value = `安装成功: ${result.skillName}`
+  } catch (err) {
+    marketplaceInstallState.value[key] = 'error'
+    marketplaceInstallError.value = formatError(err)
+  } finally {
+    setTimeout(() => {
+      if (marketplaceInstallState.value[key] === 'success') {
+        marketplaceInstallState.value[key] = 'idle'
+      }
+    }, 2000)
   }
 }
 
@@ -197,14 +350,20 @@ const openInExplorer = (path: string) => {
   window.api.openInExplorer(path)
 }
 
+const openExternal = (url: string) => {
+  window.api.openExternal(url).catch((err) => {
+    console.error('Failed to open external URL:', err)
+  })
+}
+
 // 刷新
 const refresh = () => {
   selectedSkill.value = null
-  loadSkills()
+  void loadSkills()
 }
 
 onMounted(() => {
-  loadSkills()
+  void loadSkills()
 })
 </script>
 
@@ -258,6 +417,26 @@ onMounted(() => {
               />
             </svg>
           </button>
+          <button
+            class="px-2 py-2 bg-forge-bg border border-forge-border rounded text-neutral-500 hover:text-cyan-400 hover:border-cyan-900/50 transition-all cursor-pointer"
+            title="SkillsMP"
+            @click="openMarketplaceModal"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-3.5 h-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
         </div>
         <div class="text-[10px] text-neutral-600 mt-2 px-1">
           {{ filteredSkills.length }} / {{ skills.length }} 个技能
@@ -304,7 +483,7 @@ onMounted(() => {
             @click="selectSkill(skill)"
           >
             <div class="flex items-center justify-between mb-1">
-              <span class="font-bold text-xs truncate">{{ skill.name }}</span>
+              <span class="font-bold text-xs truncate" :title="skill.name">{{ skill.name }}</span>
               <span
                 class="text-[10px] px-1.5 py-0.5 rounded border shrink-0 ml-2"
                 :class="
@@ -317,7 +496,7 @@ onMounted(() => {
                 >{{ skill.sourceLabel }}</span
               >
             </div>
-            <p class="text-[10px] text-neutral-600 truncate">
+            <p class="text-[10px] text-neutral-600 truncate" :title="skill.description || '暂无描述'">
               {{ skill.description || '暂无描述' }}
             </p>
           </li>
@@ -793,6 +972,184 @@ onMounted(() => {
           </svg>
         </div>
         <p class="tracking-widest text-xs">请从左侧选择一个技能查看详情</p>
+      </div>
+    </div>
+
+    <div
+      v-if="showMarketplaceModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      @click.self="closeMarketplaceModal"
+    >
+      <div
+        class="w-[920px] max-w-[95vw] h-[78vh] bg-neutral-900 border border-forge-border rounded-xl shadow-2xl flex flex-col"
+      >
+        <div class="px-6 py-4 border-b border-forge-border flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-white">SkillsMP 一键安装</h3>
+            <p class="text-[11px] text-neutral-500 mt-1">
+              搜索 skillsmp.com 上的技能，选中后直接安装到本地。
+            </p>
+          </div>
+          <button
+            class="text-neutral-500 hover:text-neutral-200 transition-colors"
+            @click="closeMarketplaceModal"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="px-6 py-4 border-b border-forge-border space-y-3">
+          <div class="flex gap-2">
+            <input
+              v-model="marketplaceQuery"
+              type="text"
+              placeholder="搜索技能，例如: code review, react, python..."
+              class="flex-1 bg-forge-bg border border-forge-border rounded px-3 py-2 text-xs text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-cyan-800 transition-colors"
+              @keyup.enter="triggerMarketplaceSearch"
+            />
+            <select
+              v-model="marketplaceSortBy"
+              class="bg-forge-bg border border-forge-border rounded px-2 py-2 text-xs text-neutral-300 focus:outline-none focus:border-cyan-800 transition-colors"
+            >
+              <option value="stars">按 Stars</option>
+              <option value="recent">按更新</option>
+            </select>
+            <button
+              class="px-3 py-2 text-xs font-bold bg-cyan-950/40 border border-cyan-800/50 text-cyan-400 rounded hover:bg-cyan-950/60 transition-colors disabled:opacity-50"
+              :disabled="marketplaceLoading"
+              @click="triggerMarketplaceSearch"
+            >
+              {{ marketplaceLoading ? '搜索中...' : '搜索' }}
+            </button>
+          </div>
+
+          <p v-if="marketplaceError" class="text-xs text-red-400">{{ marketplaceError }}</p>
+          <p v-else-if="marketplaceInstallError" class="text-xs text-red-400">
+            {{ marketplaceInstallError }}
+          </p>
+          <p v-else-if="marketplaceInstallMessage" class="text-xs text-green-400">
+            {{ marketplaceInstallMessage }}
+          </p>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4">
+          <div
+            v-if="marketplaceLoading"
+            class="h-full flex items-center justify-center text-xs text-neutral-500"
+          >
+            正在搜索 SkillsMP...
+          </div>
+          <div
+            v-else-if="marketplaceHasSearched && marketplaceResults.length === 0"
+            class="h-full flex items-center justify-center text-xs text-neutral-500"
+          >
+            没有找到匹配的技能
+          </div>
+          <div
+            v-else-if="!marketplaceHasSearched"
+            class="h-full flex items-center justify-center text-xs text-neutral-500"
+          >
+            输入关键词后搜索
+          </div>
+          <ul v-else class="space-y-2">
+            <li
+              v-for="skill in marketplaceResults"
+              :key="marketplaceKey(skill)"
+              class="bg-forge-panel border border-forge-border rounded-lg p-4 hover:border-cyan-900/40 transition-colors"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <h4 class="text-sm font-bold text-neutral-100 truncate">{{ skill.name }}</h4>
+                  <p class="text-xs text-neutral-500 mt-0.5">
+                    by {{ skill.author }} · ⭐ {{ skill.stars }} · {{ skill.updated_at }}
+                  </p>
+                </div>
+                <div class="flex gap-2 shrink-0">
+                  <button
+                    class="px-2.5 py-1.5 text-[11px] text-neutral-400 border border-forge-border rounded hover:text-cyan-400 hover:border-cyan-900/50 transition-colors"
+                    @click="openExternal(skill.github_url)"
+                  >
+                    GitHub
+                  </button>
+                  <button
+                    class="px-2.5 py-1.5 text-[11px] font-bold rounded transition-colors disabled:opacity-60"
+                    :class="
+                      isMarketplaceInstalled(skill)
+                        ? 'bg-neutral-800 border border-neutral-700 text-neutral-500'
+                        : 'bg-cyan-950/40 border border-cyan-800/50 text-cyan-400 hover:bg-cyan-950/60'
+                    "
+                    :disabled="
+                      isMarketplaceInstalled(skill) ||
+                      marketplaceInstallState[marketplaceKey(skill)] === 'installing'
+                    "
+                    @click="installMarketplace(skill)"
+                  >
+                    <template v-if="isMarketplaceInstalled(skill)">已安装</template>
+                    <template
+                      v-else-if="marketplaceInstallState[marketplaceKey(skill)] === 'installing'"
+                    >
+                      安装中...
+                    </template>
+                    <template
+                      v-else-if="marketplaceInstallState[marketplaceKey(skill)] === 'success'"
+                    >
+                      已完成
+                    </template>
+                    <template v-else>一键安装</template>
+                  </button>
+                </div>
+              </div>
+              <p class="text-xs text-neutral-400 mt-2 leading-relaxed line-clamp-2">
+                {{ skill.description || '暂无描述' }}
+              </p>
+              <div v-if="skill.tags && skill.tags.length > 0" class="mt-2 flex flex-wrap gap-1">
+                <span
+                  v-for="tag in skill.tags.slice(0, 6)"
+                  :key="tag"
+                  class="px-1.5 py-0.5 text-[10px] bg-neutral-800 border border-neutral-700 text-neutral-400 rounded"
+                >
+                  {{ tag }}
+                </span>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div
+          class="px-6 py-3 border-t border-forge-border flex items-center justify-between text-xs text-neutral-500"
+        >
+          <span>
+            共 {{ marketplaceTotal }} 条，页码 {{ marketplacePage }} / {{ marketplaceTotalPages }}
+          </span>
+          <div class="flex gap-2">
+            <button
+              class="px-2.5 py-1 border border-forge-border rounded hover:text-neutral-300 hover:border-neutral-600 transition-colors disabled:opacity-40"
+              :disabled="marketplaceLoading || marketplacePage <= 1"
+              @click="changeMarketplacePage(marketplacePage - 1)"
+            >
+              上一页
+            </button>
+            <button
+              class="px-2.5 py-1 border border-forge-border rounded hover:text-neutral-300 hover:border-neutral-600 transition-colors disabled:opacity-40"
+              :disabled="marketplaceLoading || marketplacePage >= marketplaceTotalPages"
+              @click="changeMarketplacePage(marketplacePage + 1)"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

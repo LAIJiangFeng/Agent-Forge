@@ -465,23 +465,47 @@ export function saveMcpConfig(filePath: string, content: string): void {
 
 export type McpHealthStatus = 'connected' | 'failed' | 'unknown'
 
-function checkHttpHealth(url: string, timeoutMs = 3000): Promise<McpHealthStatus> {
+function checkHttpHealth(url: string, timeoutMs = 10000): Promise<McpHealthStatus> {
   return new Promise((resolve) => {
     try {
-      const request = net.request({ method: 'HEAD', url })
+      // MCP HTTP servers use JSON-RPC over POST; HEAD/GET are rejected (405/406)
+      const body = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'agent-forge-health', version: '1.0.0' }
+        }
+      })
+
+      const request = net.request({
+        method: 'POST',
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+          'Content-Length': String(Buffer.byteLength(body))
+        }
+      })
+
       const timer = setTimeout(() => {
         request.abort()
         resolve('failed')
       }, timeoutMs)
 
-      request.on('response', () => {
+      request.on('response', (response) => {
         clearTimeout(timer)
-        resolve('connected')
+        // Any HTTP response means the server is reachable — even 4xx/5xx.
+        // Only timeouts and connection errors mean truly unreachable.
+        resolve(response.statusCode ? 'connected' : 'failed')
       })
       request.on('error', () => {
         clearTimeout(timer)
         resolve('failed')
       })
+      request.write(body)
       request.end()
     } catch {
       resolve('failed')
@@ -523,12 +547,17 @@ export async function checkMcpHealth(
   const results: Record<string, McpHealthStatus> = {}
 
   const promises = servers.map(async (server) => {
-    if (server.type === 'http' && server.url) {
-      results[server.id] = await checkHttpHealth(server.url)
-    } else if (server.command) {
-      results[server.id] = checkCommandExists(server.command)
-    } else {
-      results[server.id] = 'unknown'
+    try {
+      if (server.type === 'http' && server.url) {
+        results[server.id] = await checkHttpHealth(server.url)
+      } else if (server.command) {
+        results[server.id] = checkCommandExists(server.command)
+      } else {
+        results[server.id] = 'unknown'
+      }
+    } catch (err) {
+      console.error(`[health] check failed for ${server.name} (${server.id}):`, err)
+      results[server.id] = 'failed'
     }
   })
 

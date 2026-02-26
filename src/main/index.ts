@@ -19,6 +19,11 @@ import { addMcpLog, clearMcpLogs, getMcpLogs } from './services/mcpLogService'
 import { installDxt, parseDxtFile } from './services/dxtService'
 import { getSkillContent, saveSkillContent, scanSkills } from './services/skillsService'
 import { translateSkillContent } from './services/translateService'
+import {
+  aiSearchMarketplaceSkills,
+  installMarketplaceSkill,
+  searchMarketplaceSkills
+} from './services/skillsMarketplaceService'
 
 interface AppConfig {
   scanPaths: {
@@ -26,6 +31,7 @@ interface AppConfig {
     mcpConfigs: string[]
   }
   projectRoots: string[]
+  skillsmpApiKey?: string
 }
 
 const CONFIG_PATH = join(app.getPath('userData'), 'config.json')
@@ -39,8 +45,12 @@ const DEFAULT_CONFIG: AppConfig = {
     skills: ['~/.claude/skills', '~/.claude/plugins/marketplaces'],
     mcpConfigs: ['~/.claude.json']
   },
-  projectRoots: [DEFAULT_PROJECT_ROOT]
+  projectRoots: [DEFAULT_PROJECT_ROOT],
+  skillsmpApiKey: ''
 }
+
+// Module-level config cache — populated on first access and invalidated on save
+let _cachedConfig: AppConfig | null = null
 
 function sanitizeStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -73,19 +83,28 @@ function sanitizeConfig(input: unknown): AppConfig {
   const mcpConfigs = sanitizeStringList(scanPaths.mcpConfigs)
   const projectRoots = sanitizeStringList(obj.projectRoots)
 
+  const rawApiKey = obj.skillsmpApiKey
+  const skillsmpApiKey = typeof rawApiKey === 'string' ? rawApiKey.trim().slice(0, 256) : ''
+
   return {
     scanPaths: {
       skills: skills.length > 0 ? skills : [...DEFAULT_CONFIG.scanPaths.skills],
       mcpConfigs: mcpConfigs.length > 0 ? mcpConfigs : [...DEFAULT_CONFIG.scanPaths.mcpConfigs]
     },
-    projectRoots: projectRoots.length > 0 ? projectRoots : [...DEFAULT_CONFIG.projectRoots]
+    projectRoots: projectRoots.length > 0 ? projectRoots : [...DEFAULT_CONFIG.projectRoots],
+    skillsmpApiKey
   }
 }
 
 function loadConfig(): AppConfig {
+  if (_cachedConfig !== null) return _cachedConfig
+
+  let result: AppConfig
   if (existsSync(CONFIG_PATH)) {
     try {
-      return sanitizeConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')))
+      result = sanitizeConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')))
+      _cachedConfig = result
+      return result
     } catch {
       // fallback to project/default config
     }
@@ -93,17 +112,44 @@ function loadConfig(): AppConfig {
 
   if (existsSync(DEFAULT_CONFIG_PATH)) {
     try {
-      return sanitizeConfig(JSON.parse(readFileSync(DEFAULT_CONFIG_PATH, 'utf-8')))
+      result = sanitizeConfig(JSON.parse(readFileSync(DEFAULT_CONFIG_PATH, 'utf-8')))
+      _cachedConfig = result
+      return result
     } catch {
       // fallback to hardcoded defaults
     }
   }
 
-  return sanitizeConfig(DEFAULT_CONFIG)
+  result = sanitizeConfig(DEFAULT_CONFIG)
+  _cachedConfig = result
+  return result
+}
+
+/** Invalidate the in-memory config cache so the next loadConfig() re-reads disk. */
+function invalidateConfigCache(): void {
+  _cachedConfig = null
+}
+
+/**
+ * Resolve the SkillsMP API key from the cached config, then fall back to
+ * the SKILLSMP_API_KEY environment variable.  No filesystem scanning is
+ * performed on every call — the cache is kept fresh by saveConfig().
+ */
+function resolveSkillsmpApiKey(): string {
+  const fromConfig = loadConfig().skillsmpApiKey?.trim()
+  if (fromConfig) return fromConfig
+
+  const envApiKey =
+    typeof process.env.SKILLSMP_API_KEY === 'string'
+      ? process.env.SKILLSMP_API_KEY.trim().slice(0, 256)
+      : ''
+  return envApiKey
 }
 
 function saveConfig(config: AppConfig): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(sanitizeConfig(config), null, 2), 'utf-8')
+  // Invalidate cache so subsequent loadConfig() calls see the new values
+  invalidateConfigCache()
 }
 
 function expandHomePath(inputPath: string): string {
@@ -425,7 +471,11 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('mcp:parseDxt', (_event, filePath: string) => {
-    return parseDxtFile(assertApprovedDxtFile(filePath))
+    try {
+      return parseDxtFile(assertApprovedDxtFile(filePath))
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : String(err))
+    }
   })
 
   ipcMain.handle(
@@ -436,8 +486,9 @@ function registerIpcHandlers(): void {
       configPath: string,
       userConfigValues?: Record<string, string>
     ) => {
-      const approvedFilePath = assertApprovedDxtFile(filePath)
+      let approvedFilePath = ''
       try {
+        approvedFilePath = assertApprovedDxtFile(filePath)
         const result = installDxt(
           approvedFilePath,
           assertAllowedMcpConfigWrite(configPath),
@@ -445,8 +496,12 @@ function registerIpcHandlers(): void {
         )
         addMcpLog('installDxt', result.serverName, `DXT installed to ${result.installDir}`)
         return result
+      } catch (err) {
+        throw new Error(err instanceof Error ? err.message : String(err))
       } finally {
-        approvedDxtFiles.delete(normalizeForCompare(approvedFilePath))
+        if (approvedFilePath) {
+          approvedDxtFiles.delete(normalizeForCompare(approvedFilePath))
+        }
       }
     }
   )
@@ -464,11 +519,29 @@ function registerIpcHandlers(): void {
   )
 
   ipcMain.handle('config:get', () => {
-    return loadConfig()
+    const cfg = loadConfig()
+    // Return a sanitized view: omit the raw key and expose only a boolean flag
+    // so the renderer never holds the full API key in its reactive state.
+    return {
+      scanPaths: cfg.scanPaths,
+      projectRoots: cfg.projectRoots,
+      skillsmpApiKeyConfigured: !!(cfg.skillsmpApiKey && cfg.skillsmpApiKey.trim())
+    }
   })
 
   ipcMain.handle('config:save', (_event, newConfig: AppConfig) => {
-    saveConfig(sanitizeConfig(newConfig))
+    // Preserve the existing API key when saving path-only config updates
+    const existing = loadConfig()
+    const merged = sanitizeConfig({ ...newConfig, skillsmpApiKey: existing.skillsmpApiKey })
+    saveConfig(merged)
+    return { success: true }
+  })
+
+  /** Dedicated handler for updating the API key — keeps it out of the general config payload. */
+  ipcMain.handle('config:setApiKey', (_event, apiKey: string) => {
+    const existing = loadConfig()
+    const sanitizedKey = typeof apiKey === 'string' ? apiKey.trim().slice(0, 256) : ''
+    saveConfig(sanitizeConfig({ ...existing, skillsmpApiKey: sanitizedKey }))
     return { success: true }
   })
 
@@ -479,6 +552,39 @@ function registerIpcHandlers(): void {
   ipcMain.handle('utils:openExternal', async (_event, url: string) => {
     await safeOpenExternal(url)
   })
+
+  // Marketplace
+  ipcMain.handle(
+    'marketplace:search',
+    async (
+      _event,
+      query: string,
+      page?: number,
+      limit?: number,
+      sortBy?: 'stars' | 'recent'
+    ) => {
+      const apiKey = resolveSkillsmpApiKey()
+      if (!apiKey) {
+        throw new Error(`Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`)
+      }
+      return searchMarketplaceSkills(apiKey, query, page, limit, sortBy)
+    }
+  )
+
+  ipcMain.handle('marketplace:aiSearch', async (_event, query: string) => {
+    const apiKey = resolveSkillsmpApiKey()
+    if (!apiKey) {
+      throw new Error(`Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`)
+    }
+    return aiSearchMarketplaceSkills(apiKey, query)
+  })
+
+  ipcMain.handle(
+    'marketplace:install',
+    async (_event, skillName: string, githubUrl: string) => {
+      return installMarketplaceSkill(skillName, githubUrl)
+    }
+  )
 }
 
 app.whenReady().then(() => {
