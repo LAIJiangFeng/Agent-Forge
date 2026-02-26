@@ -294,6 +294,11 @@ export const useMcpPanel = () => {
         const servers = scope.container[scope.key] as Record<string, unknown>
         const newName = editedKeys[0]
 
+        // 重命名冲突检测：如果目标名称已存在，阻止覆盖
+        if (newName !== oldName && servers[newName]) {
+          throw new Error(`服务名 "${newName}" 已存在，请使用其他名称`)
+        }
+
         // 如果重命名了 server，删除旧的
         if (newName !== oldName) {
           delete servers[oldName]

@@ -486,18 +486,22 @@ function registerIpcHandlers(): void {
       configPath: string,
       userConfigValues?: Record<string, string>
     ) => {
+      let approvedFilePath = ''
       try {
-        const approvedFilePath = assertApprovedDxtFile(filePath)
+        approvedFilePath = assertApprovedDxtFile(filePath)
         const result = installDxt(
           approvedFilePath,
           assertAllowedMcpConfigWrite(configPath),
           userConfigValues
         )
         addMcpLog('installDxt', result.serverName, `DXT installed to ${result.installDir}`)
-        approvedDxtFiles.delete(normalizeForCompare(approvedFilePath))
         return result
       } catch (err) {
         throw new Error(err instanceof Error ? err.message : String(err))
+      } finally {
+        if (approvedFilePath) {
+          approvedDxtFiles.delete(normalizeForCompare(approvedFilePath))
+        }
       }
     }
   )
