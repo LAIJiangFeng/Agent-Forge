@@ -4,6 +4,7 @@ node_modules
 # Build output
 dist
 out
+build/icons
 
 # OS files
 .DS_Store
