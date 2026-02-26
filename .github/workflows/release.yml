@@ -31,6 +31,17 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Remove China mirror for CI
+        shell: bash
+        run: |
+          if [ -f .npmrc ]; then
+            sed -i.bak '/electron_mirror/d' .npmrc
+            sed -i.bak '/electron_builder_binaries_mirror/d' .npmrc
+            rm -f .npmrc.bak
+            echo "Cleaned .npmrc for CI:"
+            cat .npmrc
+          fi
+
       - name: Install dependencies
         run: npm ci
 
