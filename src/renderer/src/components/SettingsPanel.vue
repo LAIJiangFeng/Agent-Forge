@@ -7,7 +7,8 @@ interface AppConfig {
     mcpConfigs: string[]
   }
   projectRoots: string[]
-  skillsmpApiKey: string
+  /** Whether an API key is stored server-side (the raw value never reaches the renderer) */
+  skillsmpApiKeyConfigured: boolean
 }
 
 const config = ref<AppConfig>({
@@ -16,7 +17,7 @@ const config = ref<AppConfig>({
     mcpConfigs: []
   },
   projectRoots: [],
-  skillsmpApiKey: ''
+  skillsmpApiKeyConfigured: false
 })
 
 const loading = ref(true)
@@ -28,14 +29,19 @@ const newSkillPath = ref('')
 const newMcpPath = ref('')
 const newProjectRoot = ref('')
 
+// API Key — kept in a separate local ref, never persisted to config reactive state
+const apiKeyInput = ref('')
+const apiKeySaveStatus = ref<'idle' | 'saving' | 'success' | 'error'>('idle')
+
 // 加载配置
 const loadConfig = async () => {
   loading.value = true
   try {
     const loaded = await window.api.getConfig()
     config.value = {
-      ...loaded,
-      skillsmpApiKey: loaded.skillsmpApiKey || ''
+      scanPaths: loaded.scanPaths,
+      projectRoots: loaded.projectRoots,
+      skillsmpApiKeyConfigured: !!loaded.skillsmpApiKeyConfigured
     }
   } catch (err) {
     console.error('Failed to load config:', err)
@@ -44,20 +50,18 @@ const loadConfig = async () => {
   }
 }
 
-// 保存配置
+// 保存配置（路径 / 根目录，不含 API Key）
 const saveConfig = async () => {
   saveStatus.value = 'saving'
   saveErrorMessage.value = ''
   try {
-    const payload: AppConfig = {
+    const payload = {
       scanPaths: {
         skills: [...config.value.scanPaths.skills],
         mcpConfigs: [...config.value.scanPaths.mcpConfigs]
       },
-      projectRoots: [...config.value.projectRoots],
-      skillsmpApiKey: (config.value.skillsmpApiKey || '').trim()
+      projectRoots: [...config.value.projectRoots]
     }
-    config.value.skillsmpApiKey = payload.skillsmpApiKey
     await window.api.saveConfig(payload)
     saveStatus.value = 'success'
     setTimeout(() => {
@@ -69,6 +73,26 @@ const saveConfig = async () => {
     console.error('Failed to save config:', err)
     setTimeout(() => {
       saveStatus.value = 'idle'
+    }, 3000)
+  }
+}
+
+// 单独更新 API Key（通过专用 IPC 通道，原始 key 不出现在通用 config 载荷中）
+const saveApiKey = async () => {
+  apiKeySaveStatus.value = 'saving'
+  try {
+    await window.api.setApiKey(apiKeyInput.value)
+    apiKeyInput.value = ''
+    config.value.skillsmpApiKeyConfigured = true
+    apiKeySaveStatus.value = 'success'
+    setTimeout(() => {
+      apiKeySaveStatus.value = 'idle'
+    }, 2000)
+  } catch (err) {
+    apiKeySaveStatus.value = 'error'
+    console.error('Failed to save API key:', err)
+    setTimeout(() => {
+      apiKeySaveStatus.value = 'idle'
     }, 3000)
   }
 }
@@ -301,7 +325,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 保存按钮 -->
+      <!-- SkillsMP API Key (专用通道更新，原始值不回传到渲染层) -->
       <div
         class="bg-forge-panel border border-forge-border p-6 rounded-lg relative overflow-hidden"
       >
@@ -323,16 +347,60 @@ onMounted(() => {
           </svg>
           SkillsMP API Key
         </h3>
-        <p class="text-xs text-neutral-500 mb-4">
+        <p class="text-xs text-neutral-500 mb-3">
           用于 SkillsMP 搜索与安装。可在 https://skillsmp.com 获取。
         </p>
-        <input
-          v-model="config.skillsmpApiKey"
-          type="password"
-          autocomplete="off"
-          placeholder="sk_..."
-          class="w-full bg-forge-bg border border-forge-border rounded px-3 py-2 text-xs text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-violet-800 transition-colors font-mono"
-        />
+
+        <!-- 已配置状态 badge -->
+        <div class="mb-3">
+          <span
+            v-if="config.skillsmpApiKeyConfigured"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-950/40 border border-green-800/60 text-green-400"
+          >
+            <span class="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+            已配置
+          </span>
+          <span
+            v-else
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-900 border border-neutral-700 text-neutral-500"
+          >
+            <span class="w-1.5 h-1.5 rounded-full bg-neutral-600"></span>
+            未配置
+          </span>
+        </div>
+
+        <!-- 更新 key 输入区 -->
+        <div class="flex gap-2">
+          <input
+            v-model="apiKeyInput"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="config.skillsmpApiKeyConfigured ? '输入新 Key 以覆盖现有配置...' : 'sk_...' "
+            class="flex-1 bg-forge-bg border border-forge-border rounded px-3 py-2 text-xs text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-violet-800 transition-colors font-mono"
+            @keyup.enter="saveApiKey"
+          />
+          <button
+            :disabled="!apiKeyInput.trim() || apiKeySaveStatus === 'saving'"
+            class="px-3 py-2 text-xs font-bold rounded transition-colors min-w-[72px]"
+            :class="{
+              'bg-violet-950/40 border border-violet-800/60 text-violet-400 hover:bg-violet-950/70 disabled:opacity-40 disabled:cursor-not-allowed': apiKeySaveStatus === 'idle',
+              'bg-neutral-800 border border-neutral-600 text-neutral-400': apiKeySaveStatus === 'saving',
+              'bg-green-950/30 border border-green-800 text-green-400': apiKeySaveStatus === 'success',
+              'bg-red-950/30 border border-red-800 text-red-400': apiKeySaveStatus === 'error'
+            }"
+            @click="saveApiKey"
+          >
+            {{
+              apiKeySaveStatus === 'idle'
+                ? '保存 Key'
+                : apiKeySaveStatus === 'saving'
+                  ? '保存中...'
+                  : apiKeySaveStatus === 'success'
+                    ? '✓ 已保存'
+                    : '✗ 失败'
+            }}
+          </button>
+        </div>
       </div>
 
       <div class="flex justify-end pt-4 border-t border-forge-border">

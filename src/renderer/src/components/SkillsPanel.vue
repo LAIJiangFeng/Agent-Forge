@@ -4,6 +4,10 @@ import { Editor } from '@guolao/vue-monaco-editor'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
+const props = defineProps<{
+  initialSkillId?: string
+}>()
+
 // 配置 marked
 marked.setOptions({
   breaks: true,
@@ -150,6 +154,9 @@ const loadSkills = async () => {
     skills.value = await window.api.scanSkills()
     if (skills.value.length === 0) {
       selectedSkill.value = null
+    } else if (props.initialSkillId) {
+      // Deep-link from dashboard: select the specific skill
+      selectedSkill.value = skills.value.find((s) => s.id === props.initialSkillId) || skills.value[0]
     } else if (prevSelectedId) {
       selectedSkill.value = skills.value.find((s) => s.id === prevSelectedId) || skills.value[0]
     } else if (!selectedSkill.value) {
@@ -476,7 +483,7 @@ onMounted(() => {
             @click="selectSkill(skill)"
           >
             <div class="flex items-center justify-between mb-1">
-              <span class="font-bold text-xs truncate">{{ skill.name }}</span>
+              <span class="font-bold text-xs truncate" :title="skill.name">{{ skill.name }}</span>
               <span
                 class="text-[10px] px-1.5 py-0.5 rounded border shrink-0 ml-2"
                 :class="
@@ -489,7 +496,7 @@ onMounted(() => {
                 >{{ skill.sourceLabel }}</span
               >
             </div>
-            <p class="text-[10px] text-neutral-600 truncate">
+            <p class="text-[10px] text-neutral-600 truncate" :title="skill.description || '暂无描述'">
               {{ skill.description || '暂无描述' }}
             </p>
           </li>

@@ -23,7 +23,7 @@ interface McpConfigFile {
 }
 
 const emit = defineEmits<{
-  (e: 'navigate', view: string): void
+  (e: 'navigate', view: string, itemId?: string): void
 }>()
 
 const skills = ref<Skill[]>([])
@@ -150,7 +150,7 @@ onMounted(async () => {
             v-for="skill in skills.slice(0, 6)"
             :key="skill.id"
             class="bg-forge-panel border border-forge-border p-4 rounded-lg cursor-pointer hover:border-orange-900/40 transition-all duration-200 group"
-            @click="emit('navigate', 'skills')"
+            @click="emit('navigate', 'skills', skill.id)"
           >
             <div class="flex items-start justify-between mb-2">
               <h4
@@ -225,7 +225,7 @@ onMounted(async () => {
             v-for="server in allMcpServers.slice(0, 6)"
             :key="server.id"
             class="bg-forge-panel border border-forge-border p-4 rounded-lg cursor-pointer hover:border-blue-900/40 transition-all duration-200 group"
-            @click="emit('navigate', 'mcp')"
+            @click="emit('navigate', 'mcp', server.id)"
           >
             <div class="flex items-start justify-between mb-2">
               <h4

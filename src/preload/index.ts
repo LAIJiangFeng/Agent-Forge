@@ -6,7 +6,8 @@ interface AppConfig {
     mcpConfigs: string[]
   }
   projectRoots: string[]
-  skillsmpApiKey?: string
+  /** True when an API key is stored in the main-process config (key itself is never sent to renderer) */
+  skillsmpApiKeyConfigured?: boolean
 }
 
 // Custom APIs for renderer
@@ -52,7 +53,10 @@ const api = {
 
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
-  saveConfig: (config: AppConfig) => ipcRenderer.invoke('config:save', config),
+  saveConfig: (config: Omit<AppConfig, 'skillsmpApiKeyConfigured'>) =>
+    ipcRenderer.invoke('config:save', config),
+  /** Update the API key in a dedicated channel — never bundled with the general config payload. */
+  setApiKey: (apiKey: string) => ipcRenderer.invoke('config:setApiKey', apiKey),
 
   // Marketplace
   searchMarketplace: (

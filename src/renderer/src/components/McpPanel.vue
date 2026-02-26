@@ -4,6 +4,10 @@ import { Editor } from '@guolao/vue-monaco-editor'
 import McpServerList from './mcp/McpServerList.vue'
 import { useMcpPanel } from './mcp/useMcpPanel'
 
+const props = defineProps<{
+  initialServerId?: string
+}>()
+
 const {
   selectedServer,
   isEditing,
@@ -68,9 +72,10 @@ const {
 } = useMcpPanel()
 
 onMounted(() => {
-  void loadMcp()
+  void loadMcp(props.initialServerId)
 })
 </script>
+
 
 <template>
   <div class="h-full flex overflow-hidden">

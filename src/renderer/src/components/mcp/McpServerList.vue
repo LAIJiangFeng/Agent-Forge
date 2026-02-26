@@ -166,7 +166,7 @@ const onSearchInput = (e: Event) => {
               >
                 <polyline points="6 9 12 15 18 9" />
               </svg>
-              <span class="text-[10px] font-bold text-neutral-500 tracking-wide">{{ group.label }}</span>
+              <span class="text-[10px] font-bold text-neutral-500 tracking-wide" :title="group.path">{{ group.label }}</span>
             </div>
             <span class="text-[9px] text-neutral-600">{{ group.servers.length }}</span>
           </li>
@@ -196,7 +196,7 @@ const onSearchInput = (e: Event) => {
                     :title="healthStatus[server.id] === 'connected' ? '已连接' : healthStatus[server.id] === 'failed' ? '连接失败' : '检测中...'"
                   ></span>
                   <span v-else class="w-2 h-2 rounded-full shrink-0 bg-neutral-700"></span>
-                  <span class="font-bold text-xs truncate" :class="server.disabled ? 'line-through text-neutral-600' : ''">{{ server.name }}</span>
+                  <span class="font-bold text-xs truncate" :class="server.disabled ? 'line-through text-neutral-600' : ''" :title="server.name">{{ server.name }}</span>
                 </div>
                 <div class="flex items-center gap-1.5 shrink-0 ml-1">
                   <!-- Toggle Switch -->
@@ -214,7 +214,7 @@ const onSearchInput = (e: Event) => {
                   </button>
                 </div>
               </div>
-              <p class="text-[10px] text-neutral-600 truncate pl-3.5">{{ server.type === 'http' ? server.url : server.command }}</p>
+              <p class="text-[10px] text-neutral-600 truncate pl-3.5" :title="server.type === 'http' ? server.url : server.command">{{ server.type === 'http' ? server.url : server.command }}</p>
             </li>
           </template>
         </template>
@@ -245,14 +245,14 @@ const onSearchInput = (e: Event) => {
                     'bg-neutral-600 animate-pulse': !healthStatus[server.id] || healthStatus[server.id] === 'unknown'
                   }"
                 ></span>
-                <span class="font-bold text-xs truncate">{{ server.name }}</span>
+                <span class="font-bold text-xs truncate" :title="server.name">{{ server.name }}</span>
               </div>
               <span
                 class="text-[10px] px-1.5 py-0.5 rounded border shrink-0 ml-1 border-purple-900/50 text-purple-700 bg-purple-950/20"
                 >{{ server.sourceLabel }}</span
               >
             </div>
-            <p class="text-[10px] text-neutral-600 truncate pl-3.5">{{ server.type === 'http' ? server.url : server.command }}</p>
+            <p class="text-[10px] text-neutral-600 truncate pl-3.5" :title="server.type === 'http' ? server.url : server.command">{{ server.type === 'http' ? server.url : server.command }}</p>
           </li>
         </template>
       </ul>

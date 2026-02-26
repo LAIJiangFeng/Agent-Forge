@@ -7,8 +7,10 @@ import McpPanel from './components/McpPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 
 const activeView = ref('dashboard')
+const initialItemId = ref<string | undefined>(undefined)
 
-const navigate = (view: string) => {
+const navigate = (view: string, itemId?: string) => {
+  initialItemId.value = itemId
   activeView.value = view
 }
 </script>
@@ -23,9 +25,10 @@ const navigate = (view: string) => {
     <!-- Main Content -->
     <main class="flex-1 flex flex-col h-screen overflow-hidden">
       <DashboardView v-if="activeView === 'dashboard'" @navigate="navigate" />
-      <SkillsPanel v-else-if="activeView === 'skills'" />
-      <McpPanel v-else-if="activeView === 'mcp'" />
+      <SkillsPanel v-else-if="activeView === 'skills'" :initial-skill-id="initialItemId" />
+      <McpPanel v-else-if="activeView === 'mcp'" :initial-server-id="initialItemId" />
       <SettingsPanel v-else-if="activeView === 'settings'" />
     </main>
   </div>
 </template>
+

@@ -49,6 +49,9 @@ const DEFAULT_CONFIG: AppConfig = {
   skillsmpApiKey: ''
 }
 
+// Module-level config cache — populated on first access and invalidated on save
+let _cachedConfig: AppConfig | null = null
+
 function sanitizeStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
 
@@ -94,9 +97,14 @@ function sanitizeConfig(input: unknown): AppConfig {
 }
 
 function loadConfig(): AppConfig {
+  if (_cachedConfig !== null) return _cachedConfig
+
+  let result: AppConfig
   if (existsSync(CONFIG_PATH)) {
     try {
-      return sanitizeConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')))
+      result = sanitizeConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')))
+      _cachedConfig = result
+      return result
     } catch {
       // fallback to project/default config
     }
@@ -104,48 +112,44 @@ function loadConfig(): AppConfig {
 
   if (existsSync(DEFAULT_CONFIG_PATH)) {
     try {
-      return sanitizeConfig(JSON.parse(readFileSync(DEFAULT_CONFIG_PATH, 'utf-8')))
+      result = sanitizeConfig(JSON.parse(readFileSync(DEFAULT_CONFIG_PATH, 'utf-8')))
+      _cachedConfig = result
+      return result
     } catch {
       // fallback to hardcoded defaults
     }
   }
 
-  return sanitizeConfig(DEFAULT_CONFIG)
+  result = sanitizeConfig(DEFAULT_CONFIG)
+  _cachedConfig = result
+  return result
 }
 
+/** Invalidate the in-memory config cache so the next loadConfig() re-reads disk. */
+function invalidateConfigCache(): void {
+  _cachedConfig = null
+}
+
+/**
+ * Resolve the SkillsMP API key from the cached config, then fall back to
+ * the SKILLSMP_API_KEY environment variable.  No filesystem scanning is
+ * performed on every call — the cache is kept fresh by saveConfig().
+ */
 function resolveSkillsmpApiKey(): string {
   const fromConfig = loadConfig().skillsmpApiKey?.trim()
   if (fromConfig) return fromConfig
 
-  const envApiKey = typeof process.env.SKILLSMP_API_KEY === 'string' ? process.env.SKILLSMP_API_KEY.trim().slice(0, 256) : ''
-  if (envApiKey) return envApiKey
-
-  const appDataDir = process.env.APPDATA
-  if (!appDataDir) return ''
-
-  const candidateConfigPaths = [
-    join(appDataDir, 'agent-forge', 'config.json'),
-    join(appDataDir, app.getName(), 'config.json'),
-    join(appDataDir, 'Agent Forge', 'config.json'),
-    join(appDataDir, 'Electron', 'config.json')
-  ]
-
-  for (const configPath of candidateConfigPaths) {
-    if (!existsSync(configPath)) continue
-    try {
-      const parsed = sanitizeConfig(JSON.parse(readFileSync(configPath, 'utf-8')))
-      const key = parsed.skillsmpApiKey?.trim()
-      if (key) return key
-    } catch {
-      // ignore invalid candidate config file
-    }
-  }
-
-  return ''
+  const envApiKey =
+    typeof process.env.SKILLSMP_API_KEY === 'string'
+      ? process.env.SKILLSMP_API_KEY.trim().slice(0, 256)
+      : ''
+  return envApiKey
 }
 
 function saveConfig(config: AppConfig): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(sanitizeConfig(config), null, 2), 'utf-8')
+  // Invalidate cache so subsequent loadConfig() calls see the new values
+  invalidateConfigCache()
 }
 
 function expandHomePath(inputPath: string): string {
@@ -467,7 +471,11 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('mcp:parseDxt', (_event, filePath: string) => {
-    return parseDxtFile(assertApprovedDxtFile(filePath))
+    try {
+      return parseDxtFile(assertApprovedDxtFile(filePath))
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : String(err))
+    }
   })
 
   ipcMain.handle(
@@ -478,17 +486,18 @@ function registerIpcHandlers(): void {
       configPath: string,
       userConfigValues?: Record<string, string>
     ) => {
-      const approvedFilePath = assertApprovedDxtFile(filePath)
       try {
+        const approvedFilePath = assertApprovedDxtFile(filePath)
         const result = installDxt(
           approvedFilePath,
           assertAllowedMcpConfigWrite(configPath),
           userConfigValues
         )
         addMcpLog('installDxt', result.serverName, `DXT installed to ${result.installDir}`)
-        return result
-      } finally {
         approvedDxtFiles.delete(normalizeForCompare(approvedFilePath))
+        return result
+      } catch (err) {
+        throw new Error(err instanceof Error ? err.message : String(err))
       }
     }
   )
@@ -506,11 +515,29 @@ function registerIpcHandlers(): void {
   )
 
   ipcMain.handle('config:get', () => {
-    return loadConfig()
+    const cfg = loadConfig()
+    // Return a sanitized view: omit the raw key and expose only a boolean flag
+    // so the renderer never holds the full API key in its reactive state.
+    return {
+      scanPaths: cfg.scanPaths,
+      projectRoots: cfg.projectRoots,
+      skillsmpApiKeyConfigured: !!(cfg.skillsmpApiKey && cfg.skillsmpApiKey.trim())
+    }
   })
 
   ipcMain.handle('config:save', (_event, newConfig: AppConfig) => {
-    saveConfig(sanitizeConfig(newConfig))
+    // Preserve the existing API key when saving path-only config updates
+    const existing = loadConfig()
+    const merged = sanitizeConfig({ ...newConfig, skillsmpApiKey: existing.skillsmpApiKey })
+    saveConfig(merged)
+    return { success: true }
+  })
+
+  /** Dedicated handler for updating the API key — keeps it out of the general config payload. */
+  ipcMain.handle('config:setApiKey', (_event, apiKey: string) => {
+    const existing = loadConfig()
+    const sanitizedKey = typeof apiKey === 'string' ? apiKey.trim().slice(0, 256) : ''
+    saveConfig(sanitizeConfig({ ...existing, skillsmpApiKey: sanitizedKey }))
     return { success: true }
   })
 

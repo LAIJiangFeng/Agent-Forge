@@ -90,7 +90,8 @@ export const useMcpPanel = () => {
 
   const checkHealth = async () => {
     const requestId = ++latestHealthRequestId
-    const serverSnapshot = allServers.value.map((server) => ({ ...server }))
+    // Deep-clone to strip Vue reactive proxies which can fail IPC serialization
+    const serverSnapshot = JSON.parse(JSON.stringify(allServers.value)) as typeof allServers.value
     if (serverSnapshot.length === 0) {
       healthStatus.value = {}
       healthChecking.value = false
@@ -104,7 +105,7 @@ export const useMcpPanel = () => {
         healthStatus.value = result
       }
     } catch (err) {
-      console.error('Health check failed:', err)
+      console.error('[MCP] Health check failed:', err)
     } finally {
       if (requestId === latestHealthRequestId) {
         healthChecking.value = false
@@ -112,7 +113,7 @@ export const useMcpPanel = () => {
     }
   }
 
-  const loadMcp = async () => {
+  const loadMcp = async (initialServerId?: string) => {
     loading.value = true
     try {
       const previousSelectedId = selectedServer.value?.id ?? null
@@ -121,6 +122,11 @@ export const useMcpPanel = () => {
       if (allServers.value.length === 0) {
         selectedServer.value = null
         selectedConfigPath.value = null
+      } else if (initialServerId) {
+        // Deep-link from dashboard: select the specified server
+        const target = allServers.value.find((s) => s.id === initialServerId) || allServers.value[0]
+        selectedServer.value = target
+        selectedConfigPath.value = target.configPath
       } else if (previousSelectedId) {
         const refreshedSelected =
           allServers.value.find((server) => server.id === previousSelectedId) || allServers.value[0]
@@ -239,8 +245,42 @@ export const useMcpPanel = () => {
 
     saveStatus.value = 'saving'
     try {
-      const editedObj = JSON.parse(editValue.value)
-      const editedKeys = Object.keys(editedObj)
+      let editedObj: unknown
+      try {
+        editedObj = JSON.parse(editValue.value)
+      } catch {
+        throw new Error('JSON 格式错误，请检查后重试')
+      }
+
+      // 结构校验：必须是纯对象
+      if (
+        editedObj === null ||
+        typeof editedObj !== 'object' ||
+        Array.isArray(editedObj)
+      ) {
+        throw new Error('配置必须是 JSON 对象（不能是数组或原始类型）')
+      }
+
+      const editedRecord = editedObj as Record<string, unknown>
+      const editedKeys = Object.keys(editedRecord)
+
+      // 单服务编辑模式：限制只能有 1 个 key
+      if (editedKeys.length === 0) {
+        throw new Error('配置不能为空对象，请至少保留服务名称')
+      }
+      if (editedKeys.length > 1) {
+        throw new Error(`单服务编辑模式只允许 1 个顶层 key，当前有 ${editedKeys.length} 个`)
+      }
+
+      // server config 值必须是对象
+      const serverConfigValue = editedRecord[editedKeys[0]]
+      if (
+        serverConfigValue === null ||
+        typeof serverConfigValue !== 'object' ||
+        Array.isArray(serverConfigValue)
+      ) {
+        throw new Error('服务配置值必须是 JSON 对象（如 { "command": "...", "args": [...] }）')
+      }
 
       const fullContent = await window.api.getMcpConfig(selectedConfigPath.value)
       const fullConfig = JSON.parse(fullContent)
@@ -250,7 +290,7 @@ export const useMcpPanel = () => {
         ? findServerScope(fullConfig, oldName, selectedServer.value?.projectPath)
         : null
 
-      if (scope && editedKeys.length >= 1 && oldName) {
+      if (scope && oldName) {
         const servers = scope.container[scope.key] as Record<string, unknown>
         const newName = editedKeys[0]
 
@@ -258,14 +298,12 @@ export const useMcpPanel = () => {
         if (newName !== oldName) {
           delete servers[oldName]
         }
-        // 写入新配置
-        for (const key of editedKeys) {
-          servers[key] = editedObj[key]
-        }
+        // 写入新配置（仅一个 key）
+        servers[newName] = editedRecord[newName]
       } else {
-        // fallback：确保顶层 mcpServers 存在并合并
+        // fallback：确保顶层 mcpServers 存在并合并（仅一个 key）
         if (!fullConfig.mcpServers) fullConfig.mcpServers = {}
-        Object.assign(fullConfig.mcpServers, editedObj)
+        fullConfig.mcpServers[editedKeys[0]] = editedRecord[editedKeys[0]]
       }
 
       const mergedContent = JSON.stringify(fullConfig, null, 2)
@@ -521,10 +559,14 @@ export const useMcpPanel = () => {
     dxtError.value = ''
     try {
       const hasValues = Object.keys(dxtUserConfigValues.value).length > 0
+      // Vue reactive Proxy 对象无法通过 Electron IPC 结构化克隆，需转换为普通对象
+      const plainConfigValues = hasValues
+        ? Object.fromEntries(Object.entries(dxtUserConfigValues.value))
+        : undefined
       await window.api.installDxt(
-        dxtFilePath.value,
-        dxtConfigPath.value,
-        hasValues ? dxtUserConfigValues.value : undefined
+        String(dxtFilePath.value),
+        String(dxtConfigPath.value),
+        plainConfigValues
       )
       showDxtModal.value = false
       await loadMcp()
