@@ -510,18 +510,18 @@ onMounted(() => {
       <header
         class="h-14 border-b border-forge-border flex items-center justify-between px-6 bg-neutral-900/30 shrink-0"
       >
-        <div>
-          <h2 class="text-lg font-bold text-white flex items-center gap-2">
-            {{ selectedSkill?.name || '请选择一个技能' }}
+        <div class="min-w-0 flex-1">
+          <h2 class="text-lg font-bold text-white flex items-center gap-2 min-w-0">
+            <span class="truncate">{{ selectedSkill?.name || '请选择一个技能' }}</span>
             <span
               v-if="selectedSkill"
-              class="text-[10px] px-2 py-0.5 rounded border border-orange-900/50 text-orange-700 bg-orange-950/20"
+              class="text-[10px] px-2 py-0.5 rounded border border-orange-900/50 text-orange-700 bg-orange-950/20 shrink-0 whitespace-nowrap"
             >
               技能
             </span>
           </h2>
         </div>
-        <div v-if="selectedSkill" class="flex gap-2">
+        <div v-if="selectedSkill" class="flex gap-2 shrink-0 ml-3">
           <!-- 翻译按钮 -->
           <button
             v-if="translating"
