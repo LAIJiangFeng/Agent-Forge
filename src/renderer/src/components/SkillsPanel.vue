@@ -702,24 +702,15 @@ onMounted(() => {
             <!-- 删除按钮 -->
             <button
               v-if="!isEditing"
-              class="px-3 py-1.5 text-xs font-bold border rounded transition-colors bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-red-400 hover:border-red-900/50 hover:bg-red-950/20"
+              class="px-3 py-1.5 text-xs font-bold bg-red-950/30 border border-red-900 text-red-400 hover:bg-red-900/40 rounded transition-colors"
+              title="删除此技能"
               @click="confirmDeleteSkill"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="w-3.5 h-3.5 inline-block mr-1"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 inline-block mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                <line x1="10" y1="11" x2="10" y2="17" />
-                <line x1="14" y1="11" x2="14" y2="17" />
-              </svg>删除
+              </svg>
+              删除
             </button>
           </template>
         </div>
