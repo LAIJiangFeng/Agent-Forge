@@ -105,6 +105,7 @@ interface AgentForgeAPI {
   scanSkills(): Promise<Skill[]>
   getSkillContent(filePath: string): Promise<string>
   saveSkillContent(filePath: string, content: string): Promise<{ success: boolean }>
+  deleteSkill(filePath: string, dirPath: string): Promise<{ success: boolean }>
   translateSkillContent(
     description: string,
     instructions: string,

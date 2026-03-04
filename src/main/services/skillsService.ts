@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
 import { join, basename, dirname, relative } from 'path'
 import { homedir } from 'os'
 
@@ -244,4 +244,14 @@ export function getSkillContent(filePath: string): string {
  */
 export function saveSkillContent(filePath: string, content: string): void {
   writeFileSync(filePath, content, 'utf-8')
+}
+
+/**
+ * 删除指定 Skill 的整个目录
+ */
+export function deleteSkill(dirPath: string): void {
+  if (!existsSync(dirPath)) {
+    throw new Error('Skill directory does not exist')
+  }
+  rmSync(dirPath, { recursive: true, force: true })
 }
