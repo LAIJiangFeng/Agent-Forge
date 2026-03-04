@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { basename, dirname, extname, join, normalize, relative, resolve, sep } from 'path'
+import { basename, dirname, extname, join, normalize, resolve, sep } from 'path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import {
@@ -18,7 +18,7 @@ import {
 import { addMcpLog, clearMcpLogs, getMcpLogs } from './services/mcpLogService'
 import { installDxt, parseDxtFile } from './services/dxtService'
 import { deleteSkill, getSkillContent, saveSkillContent, scanSkills } from './services/skillsService'
-import { resolveSkillDeleteDir } from './services/skillDeleteGuard'
+import { isSkillFileWithinScope, resolveSkillDeleteDir } from './services/skillDeleteGuard'
 import { translateSkillContent } from './services/translateService'
 import {
   aiSearchMarketplaceSkills,
@@ -154,7 +154,7 @@ function saveConfig(config: AppConfig): void {
 }
 
 function expandHomePath(inputPath: string): string {
-  return inputPath.replace(/^~/, homedir())
+  return inputPath.replace(/^~(?=$|[\/\\])/, homedir())
 }
 
 function resolveCanonicalPath(inputPath: string): string {
@@ -186,12 +186,10 @@ function isPathWithin(basePath: string, targetPath: string): boolean {
   )
 }
 
-function isSkillFile(filePath: string): boolean {
-  return /(^|[\\/])SKILL\.md$/i.test(filePath)
-}
-
 function isMcpConfigFile(filePath: string): boolean {
-  return basename(filePath).toLowerCase() === '.mcp.json'
+  if (basename(filePath).toLowerCase() !== 'mcp.json') return false
+  const pDir = basename(dirname(filePath)).toLowerCase()
+  return pDir === 'mcps' || pDir === 'mcp'
 }
 
 function isPluginMcpConfigFile(filePath: string): boolean {
@@ -200,21 +198,11 @@ function isPluginMcpConfigFile(filePath: string): boolean {
 }
 
 function isAllowedSkillFile(filePath: string, config: AppConfig): boolean {
-  if (!isSkillFile(filePath)) return false
-
-  for (const skillPath of config.scanPaths.skills) {
-    if (isPathWithin(expandHomePath(skillPath), filePath)) return true
-  }
-
-  for (const projectRoot of config.projectRoots) {
-    const resolvedRoot = expandHomePath(projectRoot)
-    if (!isPathWithin(resolvedRoot, filePath)) continue
-
-    const relPath = relative(resolvedRoot, filePath).replace(/\\/g, '/')
-    if (/(^|\/)\.claude\/skills\/(?:.+\/)?SKILL\.md$/i.test(relPath)) return true
-  }
-
-  return false
+  return isSkillFileWithinScope(
+    filePath,
+    config.scanPaths.skills,
+    config.projectRoots
+  )
 }
 
 function isAllowedMcpConfig(filePath: string, config: AppConfig): boolean {

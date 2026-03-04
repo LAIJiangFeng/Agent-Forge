@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, lstatSync, realpathSync } from 'fs'
 import { rm } from 'fs/promises'
 import { join, basename, dirname, relative } from 'path'
 import { homedir } from 'os'
@@ -248,11 +248,42 @@ export function saveSkillContent(filePath: string, content: string): void {
 }
 
 /**
- * 删除指定 Skill 的整个目录
+ * 删除指定 Skill 的整个目录。
+ *
+ * 安全措施（双保险）：
+ * 1. 删除前再次 realpath 校验，防止校验-删除之间路径被替换（TOCTOU）
+ * 2. 拒绝删除符号链接/联接点目录，防止链接类型绕过
+ * 3. 确认 canonical path 与预期一致
  */
 export async function deleteSkill(dirPath: string): Promise<void> {
   if (!existsSync(dirPath)) {
-    throw new Error('Skill directory does not exist')
+    throw new Error('技能目录不存在')
   }
-  await rm(dirPath, { recursive: true, force: false })
+
+  // 删除前再次 realpath 校验一致性
+  let canonicalPath: string
+  try {
+    canonicalPath = realpathSync.native(dirPath)
+  } catch {
+    throw new Error('无法解析技能目录的真实路径')
+  }
+
+  // 拒绝符号链接/联接点
+  const stat = lstatSync(dirPath)
+  if (stat.isSymbolicLink()) {
+    throw new Error('拒绝删除：目标目录是符号链接')
+  }
+  if (!stat.isDirectory()) {
+    throw new Error('拒绝删除：目标不是目录')
+  }
+
+  // 确保 canonical path 与预期路径一致（防止路径漂移）
+  const normalizedDir = dirPath.replace(/\\/g, '/').toLowerCase()
+  const normalizedCanonical = canonicalPath.replace(/\\/g, '/').toLowerCase()
+  if (normalizedDir !== normalizedCanonical) {
+    throw new Error('拒绝删除：目录真实路径与预期不一致')
+  }
+
+  await rm(canonicalPath, { recursive: true, force: false })
 }
+
