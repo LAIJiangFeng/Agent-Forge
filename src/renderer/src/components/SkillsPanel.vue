@@ -512,7 +512,9 @@ onMounted(() => {
       >
         <div class="min-w-0 flex-1">
           <h2 class="text-lg font-bold text-white flex items-center gap-2 min-w-0">
-            <span class="truncate">{{ selectedSkill?.name || '请选择一个技能' }}</span>
+            <span class="truncate" :title="selectedSkill?.name || '请选择一个技能'">
+              {{ selectedSkill?.name || '请选择一个技能' }}
+            </span>
             <span
               v-if="selectedSkill"
               class="text-[10px] px-2 py-0.5 rounded border border-orange-900/50 text-orange-700 bg-orange-950/20 shrink-0 whitespace-nowrap"
