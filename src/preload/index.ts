@@ -17,6 +17,7 @@ const api = {
   getSkillContent: (filePath: string) => ipcRenderer.invoke('skills:getContent', filePath),
   saveSkillContent: (filePath: string, content: string) =>
     ipcRenderer.invoke('skills:saveContent', filePath, content),
+  deleteSkill: (filePath: string) => ipcRenderer.invoke('skills:delete', filePath),
   translateSkillContent: (description: string, instructions: string, features: string[]) =>
     ipcRenderer.invoke('skills:translate', description, instructions, features),
 
@@ -59,12 +60,8 @@ const api = {
   setApiKey: (apiKey: string) => ipcRenderer.invoke('config:setApiKey', apiKey),
 
   // Marketplace
-  searchMarketplace: (
-    query: string,
-    page?: number,
-    limit?: number,
-    sortBy?: 'stars' | 'recent'
-  ) => ipcRenderer.invoke('marketplace:search', query, page, limit, sortBy),
+  searchMarketplace: (query: string, page?: number, limit?: number, sortBy?: 'stars' | 'recent') =>
+    ipcRenderer.invoke('marketplace:search', query, page, limit, sortBy),
   aiSearchMarketplace: (query: string) => ipcRenderer.invoke('marketplace:aiSearch', query),
   installMarketplaceSkill: (name: string, githubUrl: string) =>
     ipcRenderer.invoke('marketplace:install', name, githubUrl),

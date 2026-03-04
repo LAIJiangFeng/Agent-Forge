@@ -67,7 +67,9 @@ function normalizeForCompare(inputPath: string): string {
 function isPathWithin(basePath: string, targetPath: string): boolean {
   const normalizedBase = normalizeForCompare(basePath)
   const normalizedTarget = normalizeForCompare(targetPath)
-  return normalizedTarget === normalizedBase || normalizedTarget.startsWith(`${normalizedBase}${sep}`)
+  return (
+    normalizedTarget === normalizedBase || normalizedTarget.startsWith(`${normalizedBase}${sep}`)
+  )
 }
 
 function sanitizeServerName(name: unknown): string {
@@ -178,7 +180,8 @@ function assertSafeArchiveEntries(zip: AdmZip): void {
 
     if (entry.isDirectory) continue
 
-    const entrySize = Number.isFinite(entry.header.size) && entry.header.size > 0 ? entry.header.size : 0
+    const entrySize =
+      Number.isFinite(entry.header.size) && entry.header.size > 0 ? entry.header.size : 0
     if (entrySize > MAX_DXT_SINGLE_ENTRY_BYTES) {
       throw new Error(`DXT 条目过大: ${normalizedEntryName}`)
     }

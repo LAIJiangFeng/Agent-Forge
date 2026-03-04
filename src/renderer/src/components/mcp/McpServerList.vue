@@ -51,8 +51,19 @@ const onSearchInput = (e: Event) => {
           title="刷新"
           @click="emit('refresh')"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.2" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-3.5 h-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.2"
+            />
           </svg>
         </button>
         <!-- 更多操作（悬浮下拉） -->
@@ -61,16 +72,38 @@ const onSearchInput = (e: Event) => {
             class="px-2 py-2 bg-forge-bg border border-forge-border rounded text-neutral-500 hover:text-white hover:border-neutral-600 transition-all cursor-pointer"
             title="更多操作"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-3.5 h-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="5" r="1" />
+              <circle cx="12" cy="12" r="1" />
+              <circle cx="12" cy="19" r="1" />
             </svg>
           </button>
-          <div class="absolute right-0 top-full mt-1 w-40 bg-neutral-900 border border-forge-border rounded-lg shadow-xl opacity-0 invisible group-hover/more:opacity-100 group-hover/more:visible transition-all duration-150 z-30 py-1">
+          <div
+            class="absolute right-0 top-full mt-1 w-40 bg-neutral-900 border border-forge-border rounded-lg shadow-xl opacity-0 invisible group-hover/more:opacity-100 group-hover/more:visible transition-all duration-150 z-30 py-1"
+          >
             <button
               class="w-full flex items-center gap-2 px-3 py-2 text-xs text-neutral-400 hover:text-green-400 hover:bg-neutral-800 transition-colors text-left"
               @click="emit('openAdd')"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-3.5 h-3.5 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M12 5v14M5 12h14" />
               </svg>
               添加服务
@@ -79,7 +112,16 @@ const onSearchInput = (e: Event) => {
               class="w-full flex items-center gap-2 px-3 py-2 text-xs text-neutral-400 hover:text-amber-400 hover:bg-neutral-800 transition-colors text-left"
               @click="emit('openImport')"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-3.5 h-3.5 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                 <polyline points="14 2 14 8 20 8" />
                 <line x1="12" y1="18" x2="12" y2="12" />
@@ -91,7 +133,16 @@ const onSearchInput = (e: Event) => {
               class="w-full flex items-center gap-2 px-3 py-2 text-xs text-neutral-400 hover:text-purple-400 hover:bg-neutral-800 transition-colors text-left"
               @click="emit('openDxt')"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-3.5 h-3.5 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
@@ -101,10 +152,23 @@ const onSearchInput = (e: Event) => {
             <div class="border-t border-forge-border my-1"></div>
             <button
               class="w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left"
-              :class="showLogPanel ? 'text-cyan-400' : 'text-neutral-400 hover:text-cyan-400 hover:bg-neutral-800'"
+              :class="
+                showLogPanel
+                  ? 'text-cyan-400'
+                  : 'text-neutral-400 hover:text-cyan-400 hover:bg-neutral-800'
+              "
               @click="emit('toggleLog')"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-3.5 h-3.5 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                 <polyline points="14 2 14 8 20 8" />
                 <line x1="16" y1="13" x2="8" y2="13" />
@@ -162,11 +226,20 @@ const onSearchInput = (e: Event) => {
                 xmlns="http://www.w3.org/2000/svg"
                 class="w-3 h-3 text-neutral-500 transition-transform duration-200"
                 :class="collapsedGroups[group.path] ? '-rotate-90' : ''"
-                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
               >
                 <polyline points="6 9 12 15 18 9" />
               </svg>
-              <span class="text-[10px] font-bold text-neutral-500 tracking-wide" :title="group.path">{{ group.label }}</span>
+              <span
+                class="text-[10px] font-bold text-neutral-500 tracking-wide"
+                :title="group.path"
+                >{{ group.label }}</span
+              >
             </div>
             <span class="text-[9px] text-neutral-600">{{ group.servers.length }}</span>
           </li>
@@ -191,12 +264,24 @@ const onSearchInput = (e: Event) => {
                     :class="{
                       'bg-green-500': healthStatus[server.id] === 'connected',
                       'bg-red-500': healthStatus[server.id] === 'failed',
-                      'bg-neutral-600 animate-pulse': !healthStatus[server.id] || healthStatus[server.id] === 'unknown'
+                      'bg-neutral-600 animate-pulse':
+                        !healthStatus[server.id] || healthStatus[server.id] === 'unknown'
                     }"
-                    :title="healthStatus[server.id] === 'connected' ? '已连接' : healthStatus[server.id] === 'failed' ? '连接失败' : '检测中...'"
+                    :title="
+                      healthStatus[server.id] === 'connected'
+                        ? '已连接'
+                        : healthStatus[server.id] === 'failed'
+                          ? '连接失败'
+                          : '检测中...'
+                    "
                   ></span>
                   <span v-else class="w-2 h-2 rounded-full shrink-0 bg-neutral-700"></span>
-                  <span class="font-bold text-xs truncate" :class="server.disabled ? 'line-through text-neutral-600' : ''" :title="server.name">{{ server.name }}</span>
+                  <span
+                    class="font-bold text-xs truncate"
+                    :class="server.disabled ? 'line-through text-neutral-600' : ''"
+                    :title="server.name"
+                    >{{ server.name }}</span
+                  >
                 </div>
                 <div class="flex items-center gap-1.5 shrink-0 ml-1">
                   <!-- Toggle Switch -->
@@ -214,15 +299,25 @@ const onSearchInput = (e: Event) => {
                   </button>
                 </div>
               </div>
-              <p class="text-[10px] text-neutral-600 truncate pl-3.5" :title="server.type === 'http' ? server.url : server.command">{{ server.type === 'http' ? server.url : server.command }}</p>
+              <p
+                class="text-[10px] text-neutral-600 truncate pl-3.5"
+                :title="server.type === 'http' ? server.url : server.command"
+              >
+                {{ server.type === 'http' ? server.url : server.command }}
+              </p>
             </li>
           </template>
         </template>
 
         <!-- 插件 MCP 服务 -->
         <template v-if="pluginServers.length > 0">
-          <li class="px-3 pt-4 pb-1" :class="{ 'border-t border-forge-border mt-2': regularServersCount > 0 }">
-            <span class="text-[10px] font-bold text-neutral-500 tracking-widest uppercase">插件 MCP</span>
+          <li
+            class="px-3 pt-4 pb-1"
+            :class="{ 'border-t border-forge-border mt-2': regularServersCount > 0 }"
+          >
+            <span class="text-[10px] font-bold text-neutral-500 tracking-widest uppercase"
+              >插件 MCP</span
+            >
           </li>
           <li
             v-for="server in pluginServers"
@@ -242,17 +337,25 @@ const onSearchInput = (e: Event) => {
                   :class="{
                     'bg-green-500': healthStatus[server.id] === 'connected',
                     'bg-red-500': healthStatus[server.id] === 'failed',
-                    'bg-neutral-600 animate-pulse': !healthStatus[server.id] || healthStatus[server.id] === 'unknown'
+                    'bg-neutral-600 animate-pulse':
+                      !healthStatus[server.id] || healthStatus[server.id] === 'unknown'
                   }"
                 ></span>
-                <span class="font-bold text-xs truncate" :title="server.name">{{ server.name }}</span>
+                <span class="font-bold text-xs truncate" :title="server.name">{{
+                  server.name
+                }}</span>
               </div>
               <span
                 class="text-[10px] px-1.5 py-0.5 rounded border shrink-0 ml-1 border-purple-900/50 text-purple-700 bg-purple-950/20"
                 >{{ server.sourceLabel }}</span
               >
             </div>
-            <p class="text-[10px] text-neutral-600 truncate pl-3.5" :title="server.type === 'http' ? server.url : server.command">{{ server.type === 'http' ? server.url : server.command }}</p>
+            <p
+              class="text-[10px] text-neutral-600 truncate pl-3.5"
+              :title="server.type === 'http' ? server.url : server.command"
+            >
+              {{ server.type === 'http' ? server.url : server.command }}
+            </p>
           </li>
         </template>
       </ul>

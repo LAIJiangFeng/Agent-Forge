@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { basename, dirname, extname, join, normalize, relative, resolve, sep } from 'path'
+import { basename, dirname, extname, join, normalize, resolve, sep } from 'path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import {
@@ -17,7 +17,13 @@ import {
 } from './services/mcpService'
 import { addMcpLog, clearMcpLogs, getMcpLogs } from './services/mcpLogService'
 import { installDxt, parseDxtFile } from './services/dxtService'
-import { getSkillContent, saveSkillContent, scanSkills } from './services/skillsService'
+import {
+  deleteSkill,
+  getSkillContent,
+  saveSkillContent,
+  scanSkills
+} from './services/skillsService'
+import { isSkillFileWithinScope, resolveSkillDeleteDir } from './services/skillDeleteGuard'
 import { translateSkillContent } from './services/translateService'
 import {
   aiSearchMarketplaceSkills,
@@ -153,7 +159,7 @@ function saveConfig(config: AppConfig): void {
 }
 
 function expandHomePath(inputPath: string): string {
-  return inputPath.replace(/^~/, homedir())
+  return inputPath.replace(/^~(?=$|[/\\])/, homedir())
 }
 
 function resolveCanonicalPath(inputPath: string): string {
@@ -185,12 +191,12 @@ function isPathWithin(basePath: string, targetPath: string): boolean {
   )
 }
 
-function isSkillFile(filePath: string): boolean {
-  return /(^|[\\/])SKILL\.md$/i.test(filePath)
-}
-
 function isMcpConfigFile(filePath: string): boolean {
-  return basename(filePath).toLowerCase() === '.mcp.json'
+  const fileName = basename(filePath).toLowerCase()
+  // 兼容两种命名：.mcp.json 和 mcp.json
+  if (fileName !== '.mcp.json' && fileName !== 'mcp.json') return false
+  const pDir = basename(dirname(filePath)).toLowerCase()
+  return pDir === 'mcps' || pDir === 'mcp'
 }
 
 function isPluginMcpConfigFile(filePath: string): boolean {
@@ -199,21 +205,7 @@ function isPluginMcpConfigFile(filePath: string): boolean {
 }
 
 function isAllowedSkillFile(filePath: string, config: AppConfig): boolean {
-  if (!isSkillFile(filePath)) return false
-
-  for (const skillPath of config.scanPaths.skills) {
-    if (isPathWithin(expandHomePath(skillPath), filePath)) return true
-  }
-
-  for (const projectRoot of config.projectRoots) {
-    const resolvedRoot = expandHomePath(projectRoot)
-    if (!isPathWithin(resolvedRoot, filePath)) continue
-
-    const relPath = relative(resolvedRoot, filePath).replace(/\\/g, '/')
-    if (/(^|\/)\.claude\/skills\/(?:.+\/)?SKILL\.md$/i.test(relPath)) return true
-  }
-
-  return false
+  return isSkillFileWithinScope(filePath, config.scanPaths.skills, config.projectRoots)
 }
 
 function isAllowedMcpConfig(filePath: string, config: AppConfig): boolean {
@@ -369,6 +361,17 @@ function registerIpcHandlers(): void {
     return { success: true }
   })
 
+  ipcMain.handle('skills:delete', async (_event, filePath: string) => {
+    const cfg = loadConfig()
+    const safeFilePath = assertAllowedSkillFile(filePath)
+    const safeDirPath = resolveSkillDeleteDir(safeFilePath, {
+      skillScanPaths: cfg.scanPaths.skills,
+      projectRoots: cfg.projectRoots
+    })
+    await deleteSkill(safeDirPath)
+    return { success: true }
+  })
+
   ipcMain.handle('mcp:scan', () => {
     const cfg = loadConfig()
     return scanMcp({
@@ -389,36 +392,31 @@ function registerIpcHandlers(): void {
   ipcMain.handle('mcp:checkHealth', async (_event, servers: unknown) => {
     if (!Array.isArray(servers)) return {}
     const result = await checkMcpHealth(servers)
-    addMcpLog('healthCheck', '*', `${Object.values(result).filter(s => s === 'connected').length}/${Object.keys(result).length} connected`)
+    addMcpLog(
+      'healthCheck',
+      '*',
+      `${Object.values(result).filter((s) => s === 'connected').length}/${Object.keys(result).length} connected`
+    )
     return result
   })
 
   ipcMain.handle(
     'mcp:toggleServer',
-    (
-      _event,
-      configPath: string,
-      serverName: string,
-      enabled: boolean,
-      projectPath?: string
-    ) => {
+    (_event, configPath: string, serverName: string, enabled: boolean, projectPath?: string) => {
       toggleMcpServer(assertAllowedMcpConfigWrite(configPath), serverName, enabled, projectPath)
       addMcpLog(enabled ? 'enable' : 'disable', serverName, configPath)
       return { success: true }
     }
   )
 
-  ipcMain.handle(
-    'mcp:addServer',
-    (_event, configPath: string, serverConfig: unknown) => {
-      addMcpServer(
-        assertAllowedMcpConfigWrite(configPath),
-        serverConfig as Parameters<typeof addMcpServer>[1]
-      )
-      addMcpLog('add', (serverConfig as { name?: string })?.name || 'unknown', configPath)
-      return { success: true }
-    }
-  )
+  ipcMain.handle('mcp:addServer', (_event, configPath: string, serverConfig: unknown) => {
+    addMcpServer(
+      assertAllowedMcpConfigWrite(configPath),
+      serverConfig as Parameters<typeof addMcpServer>[1]
+    )
+    addMcpLog('add', (serverConfig as { name?: string })?.name || 'unknown', configPath)
+    return { success: true }
+  })
 
   ipcMain.handle(
     'mcp:deleteServer',
@@ -429,14 +427,11 @@ function registerIpcHandlers(): void {
     }
   )
 
-  ipcMain.handle(
-    'mcp:importJson',
-    (_event, configPath: string, jsonStr: string) => {
-      const result = importMcpFromJson(assertAllowedMcpConfigWrite(configPath), jsonStr)
-      addMcpLog('import', result.imported.join(', '), `${result.imported.length} servers imported`)
-      return result
-    }
-  )
+  ipcMain.handle('mcp:importJson', (_event, configPath: string, jsonStr: string) => {
+    const result = importMcpFromJson(assertAllowedMcpConfigWrite(configPath), jsonStr)
+    addMcpLog('import', result.imported.join(', '), `${result.imported.length} servers imported`)
+    return result
+  })
 
   ipcMain.handle('mcp:getLogs', () => {
     return getMcpLogs()
@@ -480,12 +475,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'mcp:installDxt',
-    (
-      _event,
-      filePath: string,
-      configPath: string,
-      userConfigValues?: Record<string, string>
-    ) => {
+    (_event, filePath: string, configPath: string, userConfigValues?: Record<string, string>) => {
       let approvedFilePath = ''
       try {
         approvedFilePath = assertApprovedDxtFile(filePath)
@@ -556,16 +546,12 @@ function registerIpcHandlers(): void {
   // Marketplace
   ipcMain.handle(
     'marketplace:search',
-    async (
-      _event,
-      query: string,
-      page?: number,
-      limit?: number,
-      sortBy?: 'stars' | 'recent'
-    ) => {
+    async (_event, query: string, page?: number, limit?: number, sortBy?: 'stars' | 'recent') => {
       const apiKey = resolveSkillsmpApiKey()
       if (!apiKey) {
-        throw new Error(`Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`)
+        throw new Error(
+          `Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`
+        )
       }
       return searchMarketplaceSkills(apiKey, query, page, limit, sortBy)
     }
@@ -574,17 +560,16 @@ function registerIpcHandlers(): void {
   ipcMain.handle('marketplace:aiSearch', async (_event, query: string) => {
     const apiKey = resolveSkillsmpApiKey()
     if (!apiKey) {
-      throw new Error(`Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`)
+      throw new Error(
+        `Please configure SkillsMP API Key in Settings and save. Config path: ${CONFIG_PATH}`
+      )
     }
     return aiSearchMarketplaceSkills(apiKey, query)
   })
 
-  ipcMain.handle(
-    'marketplace:install',
-    async (_event, skillName: string, githubUrl: string) => {
-      return installMarketplaceSkill(skillName, githubUrl)
-    }
-  )
+  ipcMain.handle('marketplace:install', async (_event, skillName: string, githubUrl: string) => {
+    return installMarketplaceSkill(skillName, githubUrl)
+  })
 }
 
 app.whenReady().then(() => {

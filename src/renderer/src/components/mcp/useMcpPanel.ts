@@ -253,11 +253,7 @@ export const useMcpPanel = () => {
       }
 
       // 结构校验：必须是纯对象
-      if (
-        editedObj === null ||
-        typeof editedObj !== 'object' ||
-        Array.isArray(editedObj)
-      ) {
+      if (editedObj === null || typeof editedObj !== 'object' || Array.isArray(editedObj)) {
         throw new Error('配置必须是 JSON 对象（不能是数组或原始类型）')
       }
 
@@ -390,9 +386,7 @@ export const useMcpPanel = () => {
         config.url = addForm.value.url
       } else {
         config.command = addForm.value.command
-        config.args = addForm.value.args
-          .split(/\s+/)
-          .filter((a: string) => a.length > 0)
+        config.args = addForm.value.args.split(/\s+/).filter((a: string) => a.length > 0)
       }
 
       await window.api.addMcpServer(addForm.value.configPath, config)

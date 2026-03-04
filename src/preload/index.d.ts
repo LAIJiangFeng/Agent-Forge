@@ -105,6 +105,7 @@ interface AgentForgeAPI {
   scanSkills(): Promise<Skill[]>
   getSkillContent(filePath: string): Promise<string>
   saveSkillContent(filePath: string, content: string): Promise<{ success: boolean }>
+  deleteSkill(filePath: string): Promise<{ success: boolean }>
   translateSkillContent(
     description: string,
     instructions: string,
@@ -137,7 +138,11 @@ interface AgentForgeAPI {
   ): Promise<{ success: boolean }>
   openDxtFile(): Promise<string | null>
   parseDxt(filePath: string): Promise<DxtParseResult>
-  installDxt(filePath: string, configPath: string, userConfigValues?: Record<string, string>): Promise<{ serverName: string; installDir: string }>
+  installDxt(
+    filePath: string,
+    configPath: string,
+    userConfigValues?: Record<string, string>
+  ): Promise<{ serverName: string; installDir: string }>
   searchMarketplace(
     query: string,
     page?: number,

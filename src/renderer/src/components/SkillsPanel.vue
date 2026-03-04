@@ -59,6 +59,9 @@ const searchQuery = ref('')
 const loading = ref(true)
 const saveStatus = ref<'idle' | 'saving' | 'success' | 'error'>('idle')
 const copyStatus = ref<Record<string, boolean>>({})
+const showDeleteConfirm = ref(false)
+const deleteStatus = ref<'idle' | 'deleting' | 'error'>('idle')
+const deleteError = ref('')
 const showMarketplaceModal = ref(false)
 const marketplaceQuery = ref('')
 const marketplaceSortBy = ref<'stars' | 'recent'>('stars')
@@ -68,9 +71,7 @@ const marketplaceResults = ref<MarketplaceSkill[]>([])
 const marketplacePage = ref(1)
 const marketplaceTotal = ref(0)
 const marketplaceHasSearched = ref(false)
-const marketplaceInstallState = ref<Record<string, 'idle' | 'installing' | 'success' | 'error'>>(
-  {}
-)
+const marketplaceInstallState = ref<Record<string, 'idle' | 'installing' | 'success' | 'error'>>({})
 const marketplaceInstallError = ref('')
 const marketplaceInstallMessage = ref('')
 const MARKETPLACE_PAGE_SIZE = 12
@@ -156,7 +157,8 @@ const loadSkills = async () => {
       selectedSkill.value = null
     } else if (props.initialSkillId) {
       // Deep-link from dashboard: select the specific skill
-      selectedSkill.value = skills.value.find((s) => s.id === props.initialSkillId) || skills.value[0]
+      selectedSkill.value =
+        skills.value.find((s) => s.id === props.initialSkillId) || skills.value[0]
     } else if (prevSelectedId) {
       selectedSkill.value = skills.value.find((s) => s.id === prevSelectedId) || skills.value[0]
     } else if (!selectedSkill.value) {
@@ -235,7 +237,10 @@ const installMarketplace = async (marketSkill: MarketplaceSkill) => {
   marketplaceError.value = ''
 
   try {
-    const result = await window.api.installMarketplaceSkill(marketSkill.name, marketSkill.github_url)
+    const result = await window.api.installMarketplaceSkill(
+      marketSkill.name,
+      marketSkill.github_url
+    )
     await loadSkills()
 
     const suffix = `/${result.skillName.toLowerCase()}/skill.md`
@@ -354,6 +359,36 @@ const openExternal = (url: string) => {
   window.api.openExternal(url).catch((err) => {
     console.error('Failed to open external URL:', err)
   })
+}
+
+// 删除 Skill
+const confirmDeleteSkill = () => {
+  if (!selectedSkill.value) return
+  showDeleteConfirm.value = true
+  deleteError.value = ''
+}
+
+const cancelDelete = () => {
+  showDeleteConfirm.value = false
+  deleteError.value = ''
+  deleteStatus.value = 'idle'
+}
+
+const doDeleteSkill = async () => {
+  if (!selectedSkill.value) return
+  deleteStatus.value = 'deleting'
+  deleteError.value = ''
+  try {
+    await window.api.deleteSkill(selectedSkill.value.filePath)
+    showDeleteConfirm.value = false
+    deleteStatus.value = 'idle'
+    selectedSkill.value = null
+    await loadSkills()
+  } catch (err) {
+    deleteStatus.value = 'error'
+    deleteError.value = formatError(err)
+    console.error('Failed to delete skill:', err)
+  }
 }
 
 // 刷新
@@ -496,7 +531,10 @@ onMounted(() => {
                 >{{ skill.sourceLabel }}</span
               >
             </div>
-            <p class="text-[10px] text-neutral-600 truncate" :title="skill.description || '暂无描述'">
+            <p
+              class="text-[10px] text-neutral-600 truncate"
+              :title="skill.description || '暂无描述'"
+            >
               {{ skill.description || '暂无描述' }}
             </p>
           </li>
@@ -667,6 +705,30 @@ onMounted(() => {
                   <path d="M17 21v-8H7v8M7 3v5h8" /></svg
                 >保存</template
               >
+            </button>
+            <!-- 删除按钮 -->
+            <button
+              v-if="!isEditing"
+              class="px-3 py-1.5 text-xs font-bold bg-red-950/30 border border-red-900 text-red-400 hover:bg-red-900/40 rounded transition-colors"
+              title="删除此技能"
+              @click="confirmDeleteSkill"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-3.5 h-3.5 inline-block mr-1"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path
+                  d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
+                />
+              </svg>
+              删除
             </button>
           </template>
         </div>
@@ -1151,6 +1213,71 @@ onMounted(() => {
               下一页
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除确认对话框 -->
+    <div
+      v-if="showDeleteConfirm"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      @click.self="cancelDelete"
+    >
+      <div
+        class="w-[420px] max-w-[90vw] bg-neutral-900 border border-forge-border rounded-xl shadow-2xl overflow-hidden"
+      >
+        <div class="px-6 py-4 border-b border-forge-border">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4 text-red-500"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+              />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            确认删除技能
+          </h3>
+        </div>
+        <div class="px-6 py-5">
+          <p class="text-sm text-neutral-300 mb-2">
+            确定要删除技能
+            <span class="font-bold text-orange-400">{{ selectedSkill?.name }}</span>
+            吗？
+          </p>
+          <p class="text-xs text-neutral-500 mb-1">
+            将删除整个技能目录及其所有文件，此操作不可撤销。
+          </p>
+          <code
+            class="block text-[11px] text-neutral-500 bg-black/40 px-3 py-2 rounded border border-forge-border mt-3 truncate"
+          >
+            {{ selectedSkill?.dirPath }}
+          </code>
+          <p v-if="deleteError" class="text-xs text-red-400 mt-3">删除失败：{{ deleteError }}</p>
+        </div>
+        <div class="px-6 py-3 border-t border-forge-border flex justify-end gap-2">
+          <button
+            class="px-4 py-2 text-xs font-bold bg-neutral-800 border border-neutral-700 text-neutral-400 rounded hover:text-neutral-200 hover:border-neutral-600 transition-colors"
+            :disabled="deleteStatus === 'deleting'"
+            @click="cancelDelete"
+          >
+            取消
+          </button>
+          <button
+            class="px-4 py-2 text-xs font-bold bg-red-950/40 border border-red-800/50 text-red-400 rounded hover:bg-red-950/60 transition-colors disabled:opacity-50"
+            :disabled="deleteStatus === 'deleting'"
+            @click="doDeleteSkill"
+          >
+            {{ deleteStatus === 'deleting' ? '删除中...' : '确认删除' }}
+          </button>
         </div>
       </div>
     </div>
