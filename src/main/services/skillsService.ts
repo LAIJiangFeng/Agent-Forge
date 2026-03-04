@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs'
+import { rm } from 'fs/promises'
 import { join, basename, dirname, relative } from 'path'
 import { homedir } from 'os'
 
@@ -249,9 +250,9 @@ export function saveSkillContent(filePath: string, content: string): void {
 /**
  * 删除指定 Skill 的整个目录
  */
-export function deleteSkill(dirPath: string): void {
+export async function deleteSkill(dirPath: string): Promise<void> {
   if (!existsSync(dirPath)) {
     throw new Error('Skill directory does not exist')
   }
-  rmSync(dirPath, { recursive: true, force: true })
+  await rm(dirPath, { recursive: true, force: false })
 }

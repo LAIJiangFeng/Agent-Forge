@@ -18,6 +18,7 @@ import {
 import { addMcpLog, clearMcpLogs, getMcpLogs } from './services/mcpLogService'
 import { installDxt, parseDxtFile } from './services/dxtService'
 import { deleteSkill, getSkillContent, saveSkillContent, scanSkills } from './services/skillsService'
+import { resolveSkillDeleteDir } from './services/skillDeleteGuard'
 import { translateSkillContent } from './services/translateService'
 import {
   aiSearchMarketplaceSkills,
@@ -369,10 +370,14 @@ function registerIpcHandlers(): void {
     return { success: true }
   })
 
-  ipcMain.handle('skills:delete', (_event, filePath: string, dirPath: string) => {
-    // Validate that the skill file is within allowed scope
-    assertAllowedSkillFile(filePath)
-    deleteSkill(resolve(dirPath))
+  ipcMain.handle('skills:delete', async (_event, filePath: string) => {
+    const cfg = loadConfig()
+    const safeFilePath = assertAllowedSkillFile(filePath)
+    const safeDirPath = resolveSkillDeleteDir(safeFilePath, {
+      skillScanPaths: cfg.scanPaths.skills,
+      projectRoots: cfg.projectRoots
+    })
+    await deleteSkill(safeDirPath)
     return { success: true }
   })
 

@@ -377,7 +377,7 @@ const doDeleteSkill = async () => {
   deleteStatus.value = 'deleting'
   deleteError.value = ''
   try {
-    await window.api.deleteSkill(selectedSkill.value.filePath, selectedSkill.value.dirPath)
+    await window.api.deleteSkill(selectedSkill.value.filePath)
     showDeleteConfirm.value = false
     deleteStatus.value = 'idle'
     selectedSkill.value = null

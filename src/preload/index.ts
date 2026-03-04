@@ -17,8 +17,7 @@ const api = {
   getSkillContent: (filePath: string) => ipcRenderer.invoke('skills:getContent', filePath),
   saveSkillContent: (filePath: string, content: string) =>
     ipcRenderer.invoke('skills:saveContent', filePath, content),
-  deleteSkill: (filePath: string, dirPath: string) =>
-    ipcRenderer.invoke('skills:delete', filePath, dirPath),
+  deleteSkill: (filePath: string) => ipcRenderer.invoke('skills:delete', filePath),
   translateSkillContent: (description: string, instructions: string, features: string[]) =>
     ipcRenderer.invoke('skills:translate', description, instructions, features),
 
