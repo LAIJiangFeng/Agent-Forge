@@ -130,7 +130,11 @@ function normalizeMarketplaceSkill(raw: unknown): MarketplaceSkill | null {
   const metrics = isRecord(metricValue) ? metricValue : {}
   const githubUrl = normalizeGithubUrl(payload)
 
-  const finalName = name || (githubUrl.startsWith('https://github.com/') ? githubUrl.replace('https://github.com/', '') : '')
+  const finalName =
+    name ||
+    (githubUrl.startsWith('https://github.com/')
+      ? githubUrl.replace('https://github.com/', '')
+      : '')
   if (!finalName) return null
 
   return {
@@ -196,7 +200,9 @@ function normalizeMarketplaceResult(
   ]
   const rawSkills = candidateArrays.find((c) => Array.isArray(c.value))?.value
   const skills = Array.isArray(rawSkills)
-    ? rawSkills.map((item) => normalizeMarketplaceSkill(item)).filter((v): v is MarketplaceSkill => !!v)
+    ? rawSkills
+        .map((item) => normalizeMarketplaceSkill(item))
+        .filter((v): v is MarketplaceSkill => !!v)
     : []
 
   const pagination = isRecord(root.pagination)
@@ -207,7 +213,7 @@ function normalizeMarketplaceResult(
   const meta = isRecord(root.meta) ? root.meta : isRecord(data.meta) ? data.meta : {}
 
   const total = asNumber(
-      root.total ??
+    root.total ??
       root.count ??
       root.total_count ??
       root.totalCount ??
@@ -302,9 +308,7 @@ async function apiFetch<T>(url: string, apiKey: string): Promise<T> {
   if (!response.ok) {
     const remaining = response.headers.get('x-ratelimit-daily-remaining')
     const limit = response.headers.get('x-ratelimit-daily-limit')
-    const quotaHint = remaining
-      ? ` (daily remaining: ${remaining}/${limit || '500'})`
-      : ''
+    const quotaHint = remaining ? ` (daily remaining: ${remaining}/${limit || '500'})` : ''
 
     let errorCode = ''
     let errorMessage = ''
@@ -321,7 +325,11 @@ async function apiFetch<T>(url: string, apiKey: string): Promise<T> {
       // ignore json parse error
     }
 
-    if (errorCode === 'MISSING_API_KEY' || errorCode === 'INVALID_API_KEY' || response.status === 401) {
+    if (
+      errorCode === 'MISSING_API_KEY' ||
+      errorCode === 'INVALID_API_KEY' ||
+      response.status === 401
+    ) {
       throw new Error(`SkillsMP API Key invalid or missing${quotaHint}`)
     }
     if (errorCode === 'MISSING_QUERY' || response.status === 400) {
@@ -381,8 +389,13 @@ export async function searchMarketplaceSkills(
     sortBy
   })
 
-  const requestWithParams = async (customParams: URLSearchParams): Promise<MarketplaceSearchResult> => {
-    const raw = await apiFetch<unknown>(`${API_BASE}/skills/search?${customParams.toString()}`, apiKey)
+  const requestWithParams = async (
+    customParams: URLSearchParams
+  ): Promise<MarketplaceSearchResult> => {
+    const raw = await apiFetch<unknown>(
+      `${API_BASE}/skills/search?${customParams.toString()}`,
+      apiKey
+    )
     return normalizeMarketplaceResult(raw, safePage, safeLimit)
   }
 
@@ -416,7 +429,10 @@ export async function searchMarketplaceSkills(
   if (!normalized || (normalized.skills.length === 0 && normalized.total > 0)) {
     try {
       const aiParams = new URLSearchParams({ q: normalizedQuery })
-      const aiRaw = await apiFetch<unknown>(`${API_BASE}/skills/ai-search?${aiParams.toString()}`, apiKey)
+      const aiRaw = await apiFetch<unknown>(
+        `${API_BASE}/skills/ai-search?${aiParams.toString()}`,
+        apiKey
+      )
       const aiNormalized = normalizeMarketplaceResult(aiRaw, 1, safeLimit)
       if (!normalized || aiNormalized.skills.length > 0) {
         normalized = {

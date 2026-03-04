@@ -45,6 +45,7 @@ Agent Forge 是一款专为 **Claude Code** 用户打造的桌面工具，将分
 </p>
 
 **核心能力：**
+
 - 左侧列表按来源（用户级 / 市场级）分类展示，支持实时搜索
 - 右侧详情页显示使用命令（对话命令 `use skill: xxx` + 斜杠命令 `/xxx`），一键复制
 - 内置 Monaco Editor，支持语法高亮，直接在应用内编辑 SKILL.md 并保存
@@ -70,6 +71,7 @@ Agent Forge 是一款专为 **Claude Code** 用户打造的桌面工具，将分
 </p>
 
 **功能亮点：**
+
 - 关键词搜索 / AI 语义搜索，智能匹配需求
 - 按 Stars / 最近更新排序，支持翻页
 - 已安装的技能显示「已安装」标记，不重复安装
@@ -86,6 +88,7 @@ Agent Forge 是一款专为 **Claude Code** 用户打造的桌面工具，将分
 </p>
 
 **核心能力：**
+
 - **多源扫描** — 自动识别 `.claude.json`、`.mcp.json`、插件缓存中的所有 MCP 服务
 - **健康检测** — 实时显示绿色/红色连接状态指示灯
 - **一键启停** — Toggle 开关直接启用/禁用服务，无需手动编辑 JSON
@@ -129,12 +132,11 @@ Agent Forge 是一款专为 **Claude Code** 用户打造的桌面工具，将分
 </p>
 
 **可配置项：**
+
 - **Skills 扫描路径** — 告诉 Agent Forge 去哪些目录查找 SKILL.md 文件
 - **MCP 配置文件路径** — 指定 `.claude.json` 或 `.mcp.json` 的位置
 - **项目根目录** — 扫描项目子目录中的 `.claude/skills/` 和 `.mcp.json`
 - **SkillsMP API Key** — 用于 SkillsMP 搜索与安装，仅存储在主进程，不暴露到前端
-
-
 
 ## 快速开始
 
@@ -173,14 +175,14 @@ npm run build:linux
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 框架 | Electron + electron-vite |
-| 前端 | Vue 3 (Composition API) + TypeScript |
-| 样式 | Tailwind CSS |
-| 编辑器 | Monaco Editor (vue-monaco-editor) |
-| Markdown | marked + DOMPurify |
-| 代码规范 | ESLint + Prettier |
+| 层级     | 技术                                 |
+| -------- | ------------------------------------ |
+| 框架     | Electron + electron-vite             |
+| 前端     | Vue 3 (Composition API) + TypeScript |
+| 样式     | Tailwind CSS                         |
+| 编辑器   | Monaco Editor (vue-monaco-editor)    |
+| Markdown | marked + DOMPurify                   |
+| 代码规范 | ESLint + Prettier                    |
 
 ---
 

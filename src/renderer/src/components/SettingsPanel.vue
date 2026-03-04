@@ -375,7 +375,9 @@ onMounted(() => {
             v-model="apiKeyInput"
             type="password"
             autocomplete="new-password"
-            :placeholder="config.skillsmpApiKeyConfigured ? '输入新 Key 以覆盖现有配置...' : 'sk_...' "
+            :placeholder="
+              config.skillsmpApiKeyConfigured ? '输入新 Key 以覆盖现有配置...' : 'sk_...'
+            "
             class="flex-1 bg-forge-bg border border-forge-border rounded px-3 py-2 text-xs text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-violet-800 transition-colors font-mono"
             @keyup.enter="saveApiKey"
           />
@@ -383,9 +385,12 @@ onMounted(() => {
             :disabled="!apiKeyInput.trim() || apiKeySaveStatus === 'saving'"
             class="px-3 py-2 text-xs font-bold rounded transition-colors min-w-[72px]"
             :class="{
-              'bg-violet-950/40 border border-violet-800/60 text-violet-400 hover:bg-violet-950/70 disabled:opacity-40 disabled:cursor-not-allowed': apiKeySaveStatus === 'idle',
-              'bg-neutral-800 border border-neutral-600 text-neutral-400': apiKeySaveStatus === 'saving',
-              'bg-green-950/30 border border-green-800 text-green-400': apiKeySaveStatus === 'success',
+              'bg-violet-950/40 border border-violet-800/60 text-violet-400 hover:bg-violet-950/70 disabled:opacity-40 disabled:cursor-not-allowed':
+                apiKeySaveStatus === 'idle',
+              'bg-neutral-800 border border-neutral-600 text-neutral-400':
+                apiKeySaveStatus === 'saving',
+              'bg-green-950/30 border border-green-800 text-green-400':
+                apiKeySaveStatus === 'success',
               'bg-red-950/30 border border-red-800 text-red-400': apiKeySaveStatus === 'error'
             }"
             @click="saveApiKey"

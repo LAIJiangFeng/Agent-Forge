@@ -31,4 +31,3 @@ const navigate = (view: string, itemId?: string) => {
     </main>
   </div>
 </template>
-

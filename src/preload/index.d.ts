@@ -138,7 +138,11 @@ interface AgentForgeAPI {
   ): Promise<{ success: boolean }>
   openDxtFile(): Promise<string | null>
   parseDxt(filePath: string): Promise<DxtParseResult>
-  installDxt(filePath: string, configPath: string, userConfigValues?: Record<string, string>): Promise<{ serverName: string; installDir: string }>
+  installDxt(
+    filePath: string,
+    configPath: string,
+    userConfigValues?: Record<string, string>
+  ): Promise<{ serverName: string; installDir: string }>
   searchMarketplace(
     query: string,
     page?: number,

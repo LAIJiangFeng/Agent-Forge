@@ -113,8 +113,7 @@ function parseMcpServers(
     const usageCommand = `mcp: ${name}`
 
     // For HTTP-type servers, display URL; for command-type, display command+args
-    const fullCommand =
-      serverType === 'http' && url ? url : [command, ...args].join(' ').trim()
+    const fullCommand = serverType === 'http' && url ? url : [command, ...args].join(' ').trim()
 
     let description =
       typeof serverConfig.description === 'string' ? serverConfig.description.trim() : ''
@@ -186,7 +185,13 @@ function extractMcpServersFromConfig(
 
   // 1b. Top-level _disabled_mcpServers
   if (isRecord(parsed._disabled_mcpServers)) {
-    for (const srv of parseMcpServers(parsed._disabled_mcpServers, configPath, source, sourceLabel, true)) {
+    for (const srv of parseMcpServers(
+      parsed._disabled_mcpServers,
+      configPath,
+      source,
+      sourceLabel,
+      true
+    )) {
       addServerIfNeeded(srv)
     }
   }
@@ -390,12 +395,7 @@ function scanPluginMcps(): McpConfigFile[] {
           if (!isRecord(parsed)) continue
 
           // Plugin .mcp.json has top-level server entries: { "serverName": { ... } }
-          const servers = parseMcpServers(
-            parsed,
-            mcpJsonPath,
-            'plugin',
-            `Plugin: ${pluginName}`
-          )
+          const servers = parseMcpServers(parsed, mcpJsonPath, 'plugin', `Plugin: ${pluginName}`)
 
           if (servers.length > 0) {
             results.push({
@@ -485,7 +485,7 @@ function checkHttpHealth(url: string, timeoutMs = 10000): Promise<McpHealthStatu
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream',
+          Accept: 'application/json, text/event-stream',
           'Content-Length': String(Buffer.byteLength(body))
         }
       })
@@ -690,10 +690,7 @@ export function deleteMcpServer(
       delete scope.mcpServers[validatedServerName]
       scopeChanged = true
     }
-    if (
-      isRecord(scope._disabled_mcpServers) &&
-      validatedServerName in scope._disabled_mcpServers
-    ) {
+    if (isRecord(scope._disabled_mcpServers) && validatedServerName in scope._disabled_mcpServers) {
       delete scope._disabled_mcpServers[validatedServerName]
       if (Object.keys(scope._disabled_mcpServers).length === 0) {
         delete scope._disabled_mcpServers

@@ -1,4 +1,12 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, lstatSync, realpathSync } from 'fs'
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  lstatSync,
+  realpathSync
+} from 'fs'
 import { rm } from 'fs/promises'
 import { join, basename, dirname, relative } from 'path'
 import { homedir } from 'os'
@@ -254,6 +262,7 @@ export function saveSkillContent(filePath: string, content: string): void {
  * 1. 删除前再次 realpath 校验，防止校验-删除之间路径被替换（TOCTOU）
  * 2. 拒绝删除符号链接/联接点目录，防止链接类型绕过
  * 3. 确认 canonical path 与预期一致
+ * 4. 使用异步删除避免阻塞主线程
  */
 export async function deleteSkill(dirPath: string): Promise<void> {
   if (!existsSync(dirPath)) {
@@ -286,4 +295,3 @@ export async function deleteSkill(dirPath: string): Promise<void> {
 
   await rm(canonicalPath, { recursive: true, force: false })
 }
-

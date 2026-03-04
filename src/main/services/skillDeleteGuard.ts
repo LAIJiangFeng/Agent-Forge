@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync } from 'fs'
+import { existsSync, lstatSync, realpathSync } from 'fs'
 import { homedir } from 'os'
 import { basename, dirname, join, normalize, relative, resolve, sep } from 'path'
 
@@ -114,10 +114,11 @@ function getProtectedRoots(config: SkillDeleteGuardConfig): string[] {
  *
  * 安全约束：
  * 1. 文件名必须是 SKILL.md
- * 2. 文件必须在允许的技能范围内
- * 3. 待删除目录必须是独立技能子目录，禁止删除扫描根目录/项目根目录/skills 根目录
- * 4. 待删除目录不能是符号链接或目录联接点（防止链接类型绕过）
- * 5. 使用 canonical path 确保路径一致性
+ * 2. 文件必须存在且是普通文件
+ * 3. 文件必须在允许的技能范围内
+ * 4. 待删除目录必须是独立技能子目录，禁止删除扫描根目录/项目根目录/skills 根目录
+ * 5. 待删除目录不能是符号链接或目录联接点（防止链接类型绕过）
+ * 6. 使用 canonical path 确保路径一致性
  */
 export function resolveSkillDeleteDir(filePath: string, config: SkillDeleteGuardConfig): string {
   const resolvedFilePath = resolve(filePath)
@@ -127,21 +128,35 @@ export function resolveSkillDeleteDir(filePath: string, config: SkillDeleteGuard
     throw new Error('拒绝访问：无效的技能文件路径')
   }
 
-  // 2. 范围校验
+  // 2. 文件存在性和类型校验（防止伪造路径）
+  if (!existsSync(resolvedFilePath)) {
+    throw new Error('拒绝访问：技能文件不存在')
+  }
+  try {
+    const fileStat = lstatSync(resolvedFilePath)
+    if (!fileStat.isFile()) {
+      throw new Error('拒绝访问：技能路径不是普通文件')
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('拒绝访问')) throw err
+    throw new Error('拒绝访问：无法验证技能文件状态')
+  }
+
+  // 3. 范围校验
   if (!isSkillFileWithinScope(resolvedFilePath, config.skillScanPaths, config.projectRoots)) {
     throw new Error('拒绝访问：技能文件不在允许的范围内')
   }
 
-  // 3. 获取 canonical 目录路径（消除符号链接影响）
+  // 4. 获取 canonical 目录路径（消除符号链接影响）
   const canonicalDirPath = normalizeForCompare(dirname(resolvedFilePath))
 
-  // 4. 最小删除单元约束：禁止删除受保护的根目录
+  // 5. 最小删除单元约束：禁止删除受保护的根目录
   const protectedRoots = getProtectedRoots(config)
   if (protectedRoots.includes(canonicalDirPath)) {
     throw new Error('拒绝删除：目标是受保护的根目录，如需删除请进入子目录操作')
   }
 
-  // 5. 符号链接/联接点检查：拒绝删除链接目录（防止链接类型绕过）
+  // 6. 符号链接/联接点检查：拒绝删除链接目录（防止链接类型绕过）
   const dirToDelete = resolve(dirname(resolvedFilePath))
   try {
     const stat = lstatSync(dirToDelete)
